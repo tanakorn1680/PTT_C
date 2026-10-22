@@ -1,0 +1,45 @@
+HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native ด้วยการแปลง DLL เป็น C
+(ไฟล์นี้ไว้ส่งต่อให้ AI ตัวอื่นทำต่อ — อัปเดตทุกครั้งที่ส่งงานใหม่)
+
+== เป้าหมาย ==
+- ทำ APK Android (arm64) ที่รัน Prototype (Radical Entertainment, 2009) แบบ native
+  ด้วยแนวทาง static recompilation เหมือนโปรเจกต์ codepdbh/nfsu2-recompiled
+  (x86 -> C ด้วย pcrecomp -> compile ด้วย NDK; กราฟิก D3D9 -> Vulkan ผ่าน DXVK)
+- ผู้ใช้มีไฟล์เกมของแท้ และต้องการประสิทธิภาพสูงสุด (ไม่ใช้ตัวจำลองอย่าง Winlator)
+
+== ข้อจำกัดของผู้ใช้ ==
+- มีแต่มือถือ Android ไม่มีคอม ใช้ GitHub Actions (repo ต้อง private)
+- สื่อสารภาษาไทย; ส่งอัปเดตเป็น ZIP เฉพาะไฟล์ที่เปลี่ยน แตกลง root ของ repo ได้เลย
+- ผู้ใช้เปลี่ยนชื่อ DLL เป็น game/engine.dll ใน repo (ชื่ออะไรก็ได้ workflow เลือก .dll ที่ใหญ่สุดใน game/)
+  ในโฟลเดอร์เกมจริงต้องใช้ชื่อเดิม (prototypeenginef.dll)
+
+== ข้อมูลที่ยืนยันแล้ว (จากการตรวจไฟล์) ==
+- prototypef.exe = ตัวเปิด (launcher) โค้ดจริงราว 8KB ที่เหลือคือรีซอร์ส; โหลด DLL ของ engine แล้วเรียก export
+  (EngineInitialize, EngineService, EngineTerminate, EngineWindowFocus, EngineMouseService, EngineKeyboardService, MainWin32)
+  ชื่อ DLL ที่ exe โหลดยังไม่ยืนยัน (เดาจากสตริง "f.dll")
+- prototypeenginef.dll: PE32 x86, 20.2MB, build 2009-04-22, MSVC 2005 (MSVCR80), ไม่ถูกห่อ/เข้ารหัส,
+  ไม่พบสตริง SecuROM/StarForce/Steam, ไม่ใช่ large-address-aware, มี relocation table
+- import: d3d9 (แค่ Direct3DCreate9), DirectSound, WINMM waveOut, XINPUT1_3, WS2_32, binkw32.dll (วิดีโอ Bink ปิดซอร์ส)
+- Scaleform GFx (UI) ลิงก์อยู่ใน DLL, มีสคริปต์ Lua ในตัวเกม, .text ราว 14MB
+
+== ผลการแปลง (รันในเครื่อง sandbox: pcrecomp 35548b8 + patches 0001-0014 จาก upstream c27896e3) ==
+- 151,652 ฟังก์ชัน, C 13,565,239 บรรทัด (380 ไฟล์ ~607MB), lift ล้มเหลว 0
+- จุดที่ยังไม่รองรับ 4,421: fcompi 2605, fcomi 803, lock 658, fucompi 314, อื่นๆ <30 (aas/int1/daa/int/ljmp/bsr/hlt/salc)
+- indirect call 42,871 จุด, indirect tail 41,857 จุด
+- catalog ~549 วินาที RAM ~3GB; lift ~202 วินาที RAM ~0.5GB
+
+== ยังไม่ได้ทำ ==
+- workflow lift-prototype.yml ยังไม่เคยรันบน Actions จริง
+- ขั้น compile C 13.6 ล้านบรรทัดเป็น ARM64: ยังไม่รู้เวลา/RAM บนรันเนอร์ private (2 vCPU / 7GB)
+- ส่วน host/runtime ยังไม่เริ่ม: จำลอง Win32 API, D3D9 -> DXVK, เสียง, อินพุต/ทัช, ข้ามวิดีโอ Bink ก่อน, ตัวโหลด DLL/launcher
+- ยังไม่ได้ lift ตัว exe (launcher)
+
+== ขั้นต่อไปที่วางไว้ ==
+1) รัน workflow ให้ได้ตัวเลขเท่ากับข้างบน (ถ้าไม่ตรง ขอ log จากผู้ใช้)
+2) เขียน patch เพิ่มให้ pcrecomp lift32 รองรับ fcomi/fcompi/fucompi และ prefix lock
+3) ทดสอบ compile ส่วนเล็กเพื่อวัดเวลา/RAM ก่อนตัดสินใจทำต่อ
+4) ออกแบบ host layer
+
+== ข้อควรระวัง ==
+- ไฟล์เกมและโค้ด C ที่ได้มีลิขสิทธิ์: repo ต้อง private, ห้ามเผยแพร่โค้ดที่แปลงหรือ APK ที่รวมไฟล์เกม
+- ลบไฟล์เกมออกจาก repo หลังใช้เสร็จ

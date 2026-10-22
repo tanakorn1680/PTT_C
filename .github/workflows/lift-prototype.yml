@@ -1,0 +1,120 @@
+name: Lift game DLL to C (stage 1)
+
+# ขั้นที่ 1: หาฟังก์ชัน + แปลงเป็น C แล้วรายงานจำนวน/ข้อผิดพลาด
+# repo ต้องเป็น PRIVATE. ใส่ไฟล์ .dll ไว้ใน game/ (ชื่ออะไรก็ได้ เช่น engine.dll)
+# ถ้ามีหลายไฟล์ จะเลือกไฟล์ .dll ที่ใหญ่ที่สุด (เหมือน workflow ของ SCRE-AT ที่เลือก .so ใหญ่สุด)
+# ไม่อัปโหลดโค้ดที่ได้จากตัวเกม: ส่งออกแค่สถิติกับ log
+
+on:
+  workflow_dispatch:
+    inputs:
+      reanalyze:
+        description: "วิเคราะห์ใหม่ทั้งหมด (ไม่ใช้ cache ของ catalog)"
+        type: boolean
+        default: false
+
+jobs:
+  lift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      PCRECOMP: ${{ github.workspace }}/pcrecomp
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Checkout NFSU2 recompiled (patches + lift driver)
+        uses: actions/checkout@v4
+        with:
+          repository: codepdbh/nfsu2-recompiled
+          ref: c27896e3dad62593ffc0a0500ebb39dca42ad2e0
+          path: upstream
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: pip install capstone pefile unicorn keystone-engine
+
+      - name: Get pcrecomp 35548b8 and apply patches
+        run: |
+          git clone https://github.com/sp00nznet/pcrecomp.git pcrecomp
+          cd pcrecomp
+          git checkout 35548b8
+          git config user.email ci@example.com
+          git config user.name ci
+          git am ../upstream/patches/pcrecomp/*.patch
+
+      - name: Find the DLL (any name, largest in game/)
+        run: |
+          DLLPATH=$(find game -type f -iname '*.dll' -printf '%s %p\n' | sort -rn | head -n1 | cut -d' ' -f2-)
+          if [ -z "$DLLPATH" ]; then
+            echo "::error::ไม่พบไฟล์ .dll ใน game/ (ใส่ เช่น game/engine.dll)"
+            exit 1
+          fi
+          echo ">> จะวิเคราะห์: $DLLPATH"
+          find game -type f -iname '*.dll' -printf '%s %p\n' | sort -rn
+          echo "DLL=$GITHUB_WORKSPACE/$DLLPATH" >> "$GITHUB_ENV"
+          sha256sum "$DLLPATH"
+          mkdir -p work
+
+      - name: Restore catalog cache
+        id: cache
+        if: ${{ !inputs.reanalyze }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            work/catalog.json
+            work/seeds_all.json
+          key: catalog-v1-${{ hashFiles('game/**') }}
+
+      - name: Prepare lift driver (no NFSU2-specific config)
+        run: |
+          mkdir -p lift/scripts lift/config
+          cp upstream/scripts/run_lift.py lift/scripts/
+          : > lift/config/overrides.txt
+          : > lift/config/exclude.txt
+          : > lift/config/hooks.txt
+
+      - name: Scan vtables and RTTI, merge seeds
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          python pcrecomp/tools/cpp/vtable_scan.py "$DLL" --seeds work/vtable_seeds.json
+          python pcrecomp/tools/cpp/rtti.py "$DLL" --seeds work/rtti_seeds.json
+          python scripts/make_seeds.py "$DLL" work/seeds_all.json work/vtable_seeds.json work/rtti_seeds.json
+
+      - name: Catalog functions (~10 min)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          python lift/scripts/run_lift.py catalog "$DLL" work/seeds_all.json work/catalog.json > work/catalog.log 2>&1 \
+            || { tail -n 60 work/catalog.log; exit 1; }
+          grep -v "Disassembling function" work/catalog.log | tail -n 20
+
+      - name: Lift to C (~4 min)
+        run: |
+          python lift/scripts/run_lift.py lift "$DLL" work/catalog.json work/gen > work/lift.log 2>&1 \
+            || { tail -n 60 work/lift.log; exit 1; }
+          tail -n 30 work/lift.log
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Lift result"
+            echo '```'
+            tail -n 40 work/lift.log 2>/dev/null || tail -n 40 work/catalog.log
+            echo '```'
+            du -sh work/gen 2>/dev/null | sed 's/^/generated C size: /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload stats and logs (no game-derived code)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lift-report
+          retention-days: 14
+          path: |
+            work/catalog.log
+            work/lift.log
+            work/gen/lift_stats.json
