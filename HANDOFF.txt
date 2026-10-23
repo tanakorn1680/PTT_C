@@ -1,6 +1,6 @@
 HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native ด้วยการแปลง DLL เป็น C
 (ไฟล์นี้ไว้ส่งต่อให้ AI ตัวอื่นทำต่อ — อัปเดตทุกครั้งที่ส่งงานใหม่)
-อัปเดตล่าสุด: 2026-10-23 (รอบที่ 2)
+อัปเดตล่าสุด: 2026-10-23 (รอบที่ 3)
 
 == เป้าหมาย ==
 - ทำ APK Android (arm64) ที่รัน Prototype (Radical Entertainment, 2009) แบบ native
@@ -39,52 +39,55 @@ HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native
 - indirect call 42,871 จุด, indirect tail 41,857 จุด
 - เทียบ NFSU2: ~27,700 ฟังก์ชัน/~9M บรรทัด => Prototype ฟังก์ชันมากกว่า ~5.5 เท่า, บรรทัดมากกว่า ~1.5 เท่า
 
-== งานที่ทำในรอบที่ 2 (ส่งในซิปนี้) ==
-- workflow: เพิ่ม input bench (ค่าเริ่มต้น true) และ bench_files (6); เพิ่มขั้น
-  1) scripts/lift_diagnostics.py -> work/lifter_excerpt.txt (ส่วนของ lift32.py: ซอร์สของ "เครื่องมือ" ไม่ใช่โค้ดเกม)
-     และ work/unimpl_forms.txt (รูปแบบคำสั่งที่ยังไม่รองรับ จัดกลุ่มพร้อมจำนวน)
-  2) scripts/bench_compile.sh -> work/bench.txt วัดเวลา/RAM compile ARM64 (NDK clang -O2 แฟล็กเดียวกับ nfsu2) จากไฟล์ตัวอย่าง
-     (ไฟล์ใหญ่สุด + กระจายเท่าๆ กัน) แล้วประมาณเวลา build ทั้งหมด; ไม่รวมต้นทุน ThinLTO link
-  3) ผลทั้งหมดแสดงใน step summary และอัปโหลดใน artifact lift-report
-- host/arm64_guest.h: ฉบับ generic ของ arm64_guest.h ใน NFSU2 (ตัดฮุกเฉพาะ NFSU2 ที่ 0x005BF610 ออก)
-  ใช้เป็น -include ตอน compile โค้ดที่ lift
-- ยังไม่ได้รันอะไรเหล่านี้บน Actions (ตรวจแค่ syntax: bash -n, py_compile, yaml)
+== ผล bench compile ARM64 (รันบน Actions จริง 2026-10-23, รันเนอร์ 4 คอร์ / 16GB, NDK clang 21) ==
+- ตัวอย่าง 6 ไฟล์ compile ผ่านทั้งหมด (rc=0) ด้วยแฟล็กเดียวกับ nfsu2 (-O2 ไม่มี LTO) => โค้ดที่ lift compile ได้จริง
+- ไฟล์ปกติ ~0.3-1 MB ใช้ 1.3-2.9 วินาที/ไฟล์ RAM ~150-200 MB (ประมาณ 2.9 วินาที/MB)
+- **ผิดปกติ: recomp_0327.c ใหญ่ 87 MB (ทั้งหมด 626 MB) ใช้ 518 วินาที และ RAM พีค ~8 GB** ไฟล์เดียวเกือบ 1/7 ของข้อมูลทั้งหมด
+  น่าจะมีฟังก์ชันขนาดมหึมา 1 ตัวหรือไม่กี่ตัว (เช่นตารางข้อมูลที่ถูกถอดเป็นโค้ด) -> เป็นคอขวดของ build
+- ตัวเลข "~15 นาที" ใน bench.txt ถูกบิดเบือนจากไฟล์ใหญ่นี้; ประมาณจริง: ไฟล์ปกติรวม ~540MB x 2.9s/MB ~ 26 CPU-นาที (~7 นาทีบน 4 คอร์)
+  + ไฟล์ 0327 อีก ~9 นาที (เธรดเดียว) ถ้าไม่ถูกแก้
+- ยังไม่ได้วัด ThinLTO link (nfsu2 เปิดไว้) กับ 13.6M บรรทัดอาจกิน RAM/เวลามาก
 
-== ทำไมยังไม่ได้เขียน patch fcomi/lock (ตัดสินใจโดยตั้งใจ) ==
-- ต้องแก้ tools/lift/lift32.py ของ pcrecomp แต่ซอร์สไม่อยู่ในแชต (ไม่มีเน็ต) เห็นแค่ส่วนจาก patch 0002/0004/0008/0014
-  การเขียนสุ่มแล้วผิด = เปรียบเทียบ float ผิดเงียบๆ ในเกม ซึ่งแย่กว่า RECOMP_UNIMPL ที่ล้มดังๆ
-- สิ่งที่รู้แล้ว (ใช้ออกแบบได้เลยเมื่อเห็นซอร์ส):
-  * lift32 ใช้โครง `elif m == '...'` ในคลาส Lifter; ตัวอย่างสาขาใหม่ดู patch 0004 (lahf/fnstenv)
-  * สถานะเทียบ x87 แบบเดิมคือตัวแปร _fpu_cmp (0=เท่ากัน, <0=น้อยกว่า, 2=unordered, >=0x10000=ค่า SW ดิบ)
-    และ sahf ต่อจาก fcom ถูกทำให้ยังคงสถานะนี้ไว้
-  * ส่วน SSE ucomiss/comisd (patch 0002, simd32.py) ตั้ง EFLAGS ตรงๆ แบบนี้ ซึ่งนำมาใช้กับ fcomi ได้:
-      L._flag_state = ('eflags', '_flag_a, _flag_b'); L._flag_seq += 1
-      _flag_a = simd_comi_eflags((double)(x), (double)(y)); _flag_b = 0; _flag_k = FK_EFLAGS; _cf = _flag_a & 1u;
-  * ความหมาย x86: fcomi/fucomi st0, sti ตั้ง ZF,PF,CF = (มากกว่า 000 / น้อยกว่า CF / เท่ากัน ZF / unordered ZF+PF+CF)
-    ตรงกับ ucomisd พอดี => x = ST(0), y = ST(i); fcompi/fucompi = เหมือนกัน แล้ว fp_pop() อีกครั้ง
-  * x87 ใช้มาโคร fp_push(v)/fp_pop() และ ST(i) = g_st[i] ภายใต้ RECOMP_X87_WINDOW (ในโค้ดที่ lift ใช้ตัวแปรท้องถิ่น _st, _fp_top)
-  * lock: เธรดของ guest รันภายใต้ "machine lock" แบบ FIFO ticket (patch 0008) สลับเธรดเฉพาะจุด call/back-edge
-    ดังนั้น `lock <op>` ทำเป็น <op> ธรรมดาได้ (atomic โดยปริยาย) แต่ต้องดูว่ารูปแบบไหนที่ lifter ยังไม่รับ
-    (difftest ของ upstream มี Case 'lock.inc' ผ่านแล้ว) -> ดู work/unimpl_forms.txt
-- ช่องที่ยังไม่รู้ (ต้องดู lifter_excerpt.txt): ชื่อฟังก์ชัน/ตัวช่วยอ่านตัวถูกดำเนินการ st(i) ใน lift32.py,
-  จุดที่ lifter จัดการ prefix lock, และวิธีที่ fcom ปัจจุบันเขียน _fpu_cmp
+== รูปแบบคำสั่งที่ยังไม่รองรับ (unimpl_forms.txt จากการรันจริง) ==
+- fcompi st(i) ~2,600, fcomi st(i) ~800, fucompi st(i) ~314 (Capstone ตั้งชื่อ fcompi/fucompi ส่วน lifter เดิมรู้แค่ fcomip/fucomip จึงไม่ตรงชื่อ)
+- lock xadd dword [reg], reg ~ 300, lock cmpxchg dword [reg], reg ~ 130, lock cmpxchg8b qword [reg] ~ 143
+  (lifter ตัด prefix lock ออกแล้วเหลือ xadd/cmpxchg/cmpxchg8b ซึ่งยังไม่มีสาขา)
+- ที่เหลือ ~45 จุด (aas/daa/int1/int/ljmp/hlt/salc/verw/arpl/insb/aad/iretd/into/"repz ret") ส่วนใหญ่เป็นข้อมูลที่ถูกถอดเป็นโค้ด
+  ที่ควรตรวจจริงๆ: bsr x2, fisttp x1, fcmovb/fcmovnbe x2
+
+== งานที่ทำในรอบที่ 3 (ส่งในซิปนี้) ==
+- patches/ptt_lifter_ext.py + patches/ptt_lift_ext_src.py: ตัวแปะ lift32.py ของ pcrecomp ตอนรันบน CI (ต่อจาก git am)
+  * เพิ่ม fcomi/fucomi/fcompi/fucompi: ใช้โมเดลเดียวกับสาขา fcomip เดิม (FPU_CMP + สถานะแฟล็ก 'fcom') แต่ใช้ตัวถูกดำเนินการ st(i) จริง
+  * เพิ่ม lock xadd / lock cmpxchg (dword, ปลายทางเป็นหน่วยความจำ) / lock cmpxchg8b: ไม่ใช้ atomic เพราะเธรด guest รันภายใต้ machine lock;
+    แฟล็กตั้งเป็นภาพ EFLAGS (FK_EFLAGS) คำนวณในโค้ดที่สร้างเอง (CF PF AF ZF SF OF) ไม่พึ่งฟังก์ชันของ runtime
+  * ตรวจแล้วบนเครื่อง AI: C ที่สร้างสำหรับ xadd/cmpxchg/cmpxchg8b คอมไพล์ด้วย gcc และตรงกับตัวอ้างอิง Python 6,000/6,000 ชุดสุ่ม
+    (ผลลัพธ์ + แฟล็ก); ตัวแปะ lift32/difftest ทดลองบนไฟล์จำลองแล้ว syntax ผ่าน; **ยังไม่ได้รันกับ pcrecomp จริง**
+  * ฟอร์มที่ไม่ตรงเงื่อนไข (ไม่ใช่ 32-bit / ปลายทางไม่ใช่ memory) ยังตกไป RECOMP_UNIMPL เหมือนเดิม (ดังชัด ไม่เงียบ)
+  * ตัวแปะจะ fail ดังๆ ถ้า anchor ไม่เจอหรือแปะซ้ำ; เพิ่มเคส difftest 12 เคสให้ difftest.py (ถ้าหา anchor เจอ)
+- workflow lift-prototype.yml: เพิ่มขั้น Apply extension, difftest (informational, อาจต้องปรับแฟล็ก ดู work/difftest.log),
+  compile-check (compile -fsyntax-only ไฟล์เล็กที่มีคำสั่งใหม่ + นับ RECOMP_UNIMPL ที่เหลือ), และ big_functions.txt
+  (ไฟล์/ฟังก์ชันที่ใหญ่สุด: address+ขนาด ไม่มีโค้ด); bench ปิดเป็นค่าเริ่มต้นแล้ว (ผลได้แล้ว; ไฟล์ใหญ่สุดกิน ~9 นาที/8GB)
+- scripts/compile_check.sh, scripts/lift_diagnostics.py (เพิ่ม big_functions)
+- สิ่งที่คาดหวังจากการรันครั้งหน้า: unimplemented_total ลดจาก 4,421 เหลือ ~45, lift_failures ยัง 0, compile-check ผ่าน
 
 == ขั้นต่อไปที่วางไว้ ==
-1) ผู้ใช้รัน workflow "Lift game DLL to C" (ติ๊ก bench ไว้) แล้วส่งกลับ: artifact lift-report ทั้งก้อน
-   (โดยเฉพาะ bench.txt, unimpl_forms.txt, lifter_excerpt.txt) หรือแคปหน้า Summary
-2) จากผล bench ตัดสินใจเรื่อง build บน Actions:
-   - ถ้าเวลา/RAM ไหว: ใช้ -O2 (+ThinLTO ถ้า RAM พอ) ถ้าไม่ไหว: ลดเป็น -O1, ปิด LTO, จำกัด job ขนาน,
-     แบ่งเป็น static lib หลายก้อน, หรือใช้ runner ใหญ่ (ต้องดูโควตา private repo 2,000 นาที/เดือน)
-   - ถ้า compile ตัวอย่างมี error ให้แก้ก่อน (ตรวจ header/มาโครที่ขาด)
-3) เขียน patch pcrecomp สำหรับ fcomi/fcompi/fucomi/fucompi + lock (patches/pcrecomp/0015-*.patch หรือสคริปต์แก้ไขตอน CI)
-   โดยอิงซอร์สจริงจาก lifter_excerpt.txt แล้วรัน lift ใหม่ให้ unimplemented ลดเหลือส่วนที่เป็นข้อมูลล้วน
-4) ออกแบบ host layer (เริ่มจาก nfsu2-recompiled/android): PE loader ของ DLL (base 0x10000000, relocation, IAT),
+1) ผู้ใช้แตกซิป รัน workflow "Lift game DLL to C" (ไม่ต้องติ๊ก bench) แล้วส่ง artifact lift-report กลับมา
+   ดู: lift_stats.json (unimplemented เหลือเท่าไร), compile_check.txt, difftest.log, big_functions.txt
+2) ถ้า difftest.log ล้ม/ใช้แฟล็กไม่ถูก: ดูส่วน --help ในไฟล์แล้วปรับคำสั่งใน workflow; ถ้ามีเคส ptt.* ไม่ผ่าน ต้องแก้ ptt_lift_ext_src.py
+3) แก้ไฟล์ยักษ์ recomp_0327.c: ดู big_functions.txt ว่าฟังก์ชันไหนใหญ่; ถ้าเป็นข้อมูลไม่ใช่โค้ดให้ใส่ใน exclude.txt
+   (รูปแบบเดียวกับ nfsu2: lift/config/exclude.txt, ใช้ "excluded: not code") แล้ว lift ใหม่ หรือแยกไฟล์ด้วยแบบ scripts/split_android_sources.py ของ nfsu2
+   (แยกที่ขอบเขตฟังก์ชัน; ไม่ช่วยถ้าเป็นฟังก์ชันเดียวขนาดมหึมา)
+4) ตรวจ bsr / fisttp / fcmovb / fcmovnbe (จุดที่น่าจะเป็นโค้ดจริง) และเพิ่มถ้าจำเป็น
+5) วัด ThinLTO link กับตัวอย่างจริง และตัดสินใจแฟล็ก (-O2/-O1, LTO on/off, จำนวน job ขนาน)
+6) ออกแบบ host layer (เริ่มจาก nfsu2-recompiled/android): PE loader ของ DLL (base 0x10000000, relocation, IAT),
    Win32 HLE ที่ DLL ใช้, D3D9 -> DXVK (Direct3DCreate9 อย่างเดียว), DirectSound/waveOut -> AAudio,
-   XInput/ทัช, stub binkw32 (ข้ามวิดีโอ), launcher ฝั่ง host เรียก Engine* exports
-5) ตั้ง Gradle/NDK build บน Actions (อิง android/ ของ nfsu2: NDK 28.2.13676358, SDK 35, CMake 3.30.5)
+   XInput/ทัช, stub binkw32 (ข้ามวิดีโอ), launcher ฝั่ง host เรียก Engine* exports (ไม่ lift exe)
+7) ตั้ง Gradle/NDK build บน Actions (อิง android/ ของ nfsu2: NDK 28.2.13676358, SDK 35, CMake 3.30.5);
+   host/arm64_guest.h ใช้เป็น -include ได้เลย
 
 == ข้อควรระวัง ==
 - ไฟล์เกมและโค้ด C ที่ได้มีลิขสิทธิ์: repo ต้อง private, ห้ามเผยแพร่โค้ดที่แปลงหรือ APK ที่รวมไฟล์เกม
-  workflow ตั้งใจไม่อัปโหลดโค้ดที่ lift (อัปโหลดแค่ log/สถิติ/ผล bench) อย่าเปลี่ยนจุดนี้
+  workflow ตั้งใจไม่อัปโหลดโค้ดที่ lift (อัปโหลดแค่ log/สถิติ/ผล bench/ที่อยู่+ขนาดฟังก์ชัน) อย่าเปลี่ยนจุดนี้
 - ลบไฟล์เกม (game/engine.dll) ออกจาก repo หลังใช้เสร็จ
 - ต้องใช้ exe/DLL ที่ไม่มีตัวป้องกันเท่านั้น
+- AI ในแชตไม่มีซอร์ส pcrecomp: ถ้าจะแก้ lifter เพิ่ม ให้ดู work/lifter_excerpt.txt (อยู่ใน artifact) ก่อน อย่าเดา API

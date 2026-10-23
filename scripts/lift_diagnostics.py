@@ -9,8 +9,10 @@ Writes:
                         Lifter method list, so a new branch can be written against the real API
   unimpl_forms.txt    - the unimplemented instructions grouped by exact form (operands
                         normalised), so we know which `lock xxx` and which fcomi variants occur
+  big_functions.txt   - largest generated files and the 25 largest generated functions
+                        (address + size only, no code): why one file is ~87 MB / 8 GB RAM to compile
 """
-import collections, glob, os, re, sys
+import collections, glob, heapq, os, re, sys
 
 
 def regions(lines, pat, before, after, limit):
@@ -70,7 +72,38 @@ def main(lift32, gen, outdir):
             w.write(f"{n:6d}  {f}\n")
 
 
+def big_functions(gen, outdir):
+    rx = re.compile(r"^void sub_([0-9A-Fa-f]{8})\(void\)")
+    sizes = sorted(((os.path.getsize(p), os.path.basename(p))
+                    for p in glob.glob(os.path.join(gen, "recomp_[0-9][0-9][0-9][0-9].c"))), reverse=True)
+    heap = []  # (bytes, addr, file)
+    for _, name in sizes[:6]:
+        cur, size = None, 0
+        with open(os.path.join(gen, name), errors="replace") as fh:
+            for ln in fh:
+                m = rx.match(ln)
+                if m:
+                    if cur:
+                        heapq.heappush(heap, (size, cur, name))
+                        if len(heap) > 25:
+                            heapq.heappop(heap)
+                    cur, size = m.group(1).upper(), 0
+                size += len(ln)
+        if cur:
+            heapq.heappush(heap, (size, cur, name))
+            if len(heap) > 25:
+                heapq.heappop(heap)
+    with open(os.path.join(outdir, "big_functions.txt"), "w") as w:
+        w.write("largest generated files:\n")
+        for b, n in sizes[:10]:
+            w.write(f"  {b:>12}  {n}\n")
+        w.write("\nlargest functions among the 6 largest files (bytes of C, address, file):\n")
+        for b, a, n in sorted(heap, reverse=True):
+            w.write(f"  {b:>12}  sub_{a}  {n}\n")
+
+
 if __name__ == "__main__":
     if len(sys.argv) != 4:
         sys.exit(__doc__)
     main(*sys.argv[1:])
+    big_functions(sys.argv[2], sys.argv[3])

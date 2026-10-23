@@ -13,9 +13,9 @@ on:
         type: boolean
         default: false
       bench:
-        description: "วัดเวลา/RAM การ compile ARM64 จากไฟล์ตัวอย่าง (ไม่เก็บโค้ดเกม)"
+        description: "วัดเวลา/RAM การ compile ARM64 จากไฟล์ตัวอย่าง (ไม่เก็บโค้ดเกม; ไฟล์ใหญ่สุดใช้ ~9 นาที/8GB)"
         type: boolean
-        default: true
+        default: false
       bench_files:
         description: "จำนวนไฟล์ตัวอย่างที่ใช้วัด"
         type: string
@@ -53,6 +53,18 @@ jobs:
           git config user.email ci@example.com
           git config user.name ci
           git am ../upstream/patches/pcrecomp/*.patch
+
+      - name: Apply PTT lifter extension (fcomi family, lock xadd/cmpxchg/cmpxchg8b)
+        run: python patches/ptt_lifter_ext.py pcrecomp
+
+      - name: difftest of the lifter against Unicorn (informational)
+        continue-on-error: true
+        run: |
+          mkdir -p work
+          cd pcrecomp
+          { python tools/lift/difftest.py --help 2>&1 | head -n 30; echo ------; \
+            timeout 900 python tools/lift/difftest.py 2>&1 | tail -n 80; } > ../work/difftest.log || true
+          tail -n 40 ../work/difftest.log
 
       - name: Find the DLL (any name, largest in game/)
         run: |
@@ -110,6 +122,10 @@ jobs:
         run: |
           python scripts/lift_diagnostics.py pcrecomp/tools/lift/lift32.py work/gen work || true
 
+      - name: Compile-check the new emitted C (syntax only)
+        continue-on-error: true
+        run: bash scripts/compile_check.sh work/gen pcrecomp host/arm64_guest.h work/compile_check.txt
+
       - name: Measure ARM64 compile cost on a sample of the generated C
         if: ${{ inputs.bench }}
         continue-on-error: true
@@ -126,6 +142,9 @@ jobs:
             echo '```'
             du -sh work/gen 2>/dev/null | sed 's/^/generated C size: /'
             if [ -f work/bench.txt ]; then echo "### Compile benchmark"; echo '```'; cat work/bench.txt; echo '```'; fi
+            if [ -f work/compile_check.txt ]; then echo "### Compile check"; echo '```'; cat work/compile_check.txt; echo '```'; fi
+            if [ -f work/difftest.log ]; then echo "### difftest (tail)"; echo '```'; tail -n 15 work/difftest.log; echo '```'; fi
+            if [ -f work/big_functions.txt ]; then echo "### Largest files/functions"; echo '```'; head -n 30 work/big_functions.txt; echo '```'; fi
             if [ -f work/unimpl_forms.txt ]; then echo "### Unimplemented forms (top 25)"; echo '```'; head -n 27 work/unimpl_forms.txt; echo '```'; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -142,3 +161,6 @@ jobs:
             work/bench.txt
             work/unimpl_forms.txt
             work/lifter_excerpt.txt
+            work/big_functions.txt
+            work/compile_check.txt
+            work/difftest.log
