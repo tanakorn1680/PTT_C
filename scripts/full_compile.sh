@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# NOTE: default visibility + --no-gc-sections on purpose: with hidden visibility and no exported root, ThinLTO
+# drops every function (first run produced a 37 KB .so), so the link time was not representative.
 # Compile ALL generated C for Android arm64 (NDK clang, flags as nfsu2's CMake) and optionally ThinLTO-link
 # the objects into a throw-away .so, timing everything. Output has timings/RSS/errors only (no game code).
 # usage: full_compile.sh <gen_dir> <pcrecomp_dir> <guest_header> <work_dir> <report> [lto|nolto]
@@ -13,7 +15,7 @@ CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-cl
 [ -x /usr/bin/time ] || sudo apt-get install -y time >/dev/null 2>&1
 CORES=$(nproc)
 say "mode=$MODE, $CORES cores, $(free -m | awk '/Mem:/{print $2}') MB RAM, $(df -m "$WD" | awk 'NR==2{print $4}') MB free disk"
-FLAGS="-O2 -w -fwrapv -fno-strict-aliasing -fexceptions -ffp-contract=off -g0 -fvisibility=hidden \
+FLAGS="-O2 -w -fwrapv -fno-strict-aliasing -fexceptions -ffp-contract=off -g0 \
 -DRECOMP_STRICT_ICALL -DRECOMP_LOCAL_REGS -DRECOMP_X87_WINDOW -DRECOMP_MEM_QUAL= \
 -I $PC/runtime/recomp32 -I $GEN -include $HDR"
 [ "$MODE" = lto ] && FLAGS="$FLAGS -flto=thin"
@@ -40,7 +42,7 @@ if [ "$NF" -gt 0 ]; then
 fi
 say "object bytes: $(cat "$OBJDIR"/*.o | wc -c)"
 
-LDF=(-shared -fuse-ld=lld -O2 -Wl,--unresolved-symbols=ignore-all -Wl,--gc-sections -o "$WD/libtest.so")
+LDF=(-shared -fuse-ld=lld -O2 -Wl,--unresolved-symbols=ignore-all -Wl,--no-gc-sections -o "$WD/libtest.so")
 [ "$MODE" = lto ] && LDF+=(-flto=thin "-Wl,--thinlto-jobs=$CORES")
 say "linking ($MODE)..."
 T2=$(date +%s)

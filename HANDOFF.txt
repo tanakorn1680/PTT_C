@@ -1,6 +1,6 @@
 HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native ด้วยการแปลง DLL เป็น C
 (ไฟล์นี้ไว้ส่งต่อให้ AI ตัวอื่นทำต่อ — อัปเดตทุกครั้งที่ส่งงานใหม่)
-อัปเดตล่าสุด: 2026-10-24 (รอบที่ 5)
+อัปเดตล่าสุด: 2026-10-24 (รอบที่ 6)
 
 == เป้าหมาย ==
 - ทำ APK Android (arm64) ที่รัน Prototype (Radical Entertainment, 2009) แบบ native
@@ -90,23 +90,31 @@ HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native
   ที่ล้ม 4 เคสคือ fcomi/fcompi/fucomi (less/equal) อ่านแฟล็กผ่าน lahf ได้ 0 เพราะสถานะแฟล็กแบบ 'fcom' (ที่ fcomip เดิมใช้) ไม่ถูกถอดผ่าน lahf/adc/sbb/pushf
   (jcc ตรงๆ ใช้ได้; เคส "greater" ผ่านเพราะแฟล็กเป็น 0 อยู่แล้ว)
 
-== งานที่ทำในรอบที่ 5 (ส่งในซิปนี้) ==
-- patches/ptt_lift_ext_src.py: fcomi/fucomi/fcompi/fucompi เปลี่ยนไปตั้ง EFLAGS image จริงด้วย simd_comi_eflags (เส้นทางเดียวกับ ucomisd ที่ผ่าน difftest ของ upstream):
-  _flag_a = simd_comi_eflags((double)st0,(double)sti); _flag_k = FK_EFLAGS; _cf = _flag_a & 1; สถานะ ('eflags','_flag_a, _flag_b'); fcompi/fucompi แล้ว fp_pop()
-  ไม่แตะ _fpu_cmp (fcomi ไม่เปลี่ยน C0..C3 ของ status word). คาดว่า difftest ผ่านครบ 258/258 (ยังไม่ได้รันยืนยัน)
-- scripts/full_compile.sh + input workflow fullbuild / fullbuild_mode: compile C ทั้งหมดเป็น ARM64 แบบขนาน (-O2, ThinLTO ถ้าเลือก lto) แล้ว link เป็น .so ทิ้ง
-  เพื่อวัดเวลา/RAM จริง; รายงานที่ work/fullbuild.txt (เวลา compile, CPU รวม, RAM พีค, ไฟล์ที่ล้ม, เวลา/RAM ตอน link)
+== ผลรันจริงของรอบที่ 5 (ยืนยัน 2026-10-24) ==
+- **difftest 258/258 ตรงกับฮาร์ดแวร์** (รวม fcomi/fcompi/fucomi ที่แก้เป็น EFLAGS จริง และ lock xadd/cmpxchg/cmpxchg8b) => ตัวแปะ lifter เสร็จ
+- full build (4 คอร์/16GB): compile ทั้ง 353 ไฟล์ (332MB C) ด้วย -O2 -flto=thin ผ่านหมด ไม่มีไฟล์ล้ม, wall 207 วินาที (CPU 815 วินาที), RAM พีคต่อ compile 345MB,
+  object (bitcode) 155MB; link ThinLTO rc=0 ใช้ 366 วินาที RAM พีค 1.5GB
+- **แต่ผล link นี้ยังไม่สมจริง**: .so ได้แค่ 37KB เพราะ -fvisibility=hidden + --gc-sections + ไม่มี root ทำให้ ThinLTO ทิ้งฟังก์ชันทั้งหมด
+  (ไม่ได้ generate โค้ดจริง). รอบนี้แก้ scripts/full_compile.sh (visibility ปกติ, --no-gc-sections) ให้วัดใหม่; โค้ดจริงที่ link จะมีตาราง dispatch อ้างฟังก์ชันทั้งหมด
+  จึงต้อง generate ทั้งหมดเหมือนในการวัดรอบหน้า
+- lift_failures 0, unimplemented 39 (เกือบทั้งหมดเป็นข้อมูล), ฟังก์ชัน 140,135, C 7.32M บรรทัด
+
+== งานที่ทำในรอบที่ 6 (ส่งในซิปนี้) ==
+- scripts/full_compile.sh: แก้ตามข้างบน (ต้องรัน fullbuild ใหม่เพื่อได้เลข link จริง)
+- docs/STAGE2_IMPORT_GAP.md + docs/prototype_imports.txt: รายการ import ทั้ง 367 รายการของ DLL เทียบกับ host ของ NFSU2 (ตามชื่อ)
+  สรุป: msvcr80 140 ฟังก์ชันเป็นงานใหม่ใหญ่สุด (NFSU2 ลิงก์ CRT แบบ static), kernel32 ขาด ~30 (fiber, semaphore, VirtualAlloc ฯลฯ),
+  winmm waveOut 8 ตัวคือทางเสียงจริง (dsound มีแค่ ordinal #2), binkw32 17 ตัว stub, เครือข่าย/ole/setupapi stub, d3d9 มีแค่ Direct3DCreate9 (DXVK มีอยู่แล้ว)
+  ข้อเสนอ: lift msvcr80.dll เป็นโมดูลที่สอง (run_lift.py รองรับ --prefix อยู่แล้ว) + override ฟังก์ชันร้อน (memcpy/memset/strlen/_CI* ฯลฯ) ด้วยของ native
+  ต้องมีไฟล์ msvcr80.dll (8.0.50727.x) จากโฟลเดอร์เกม/เครื่อง Windows
 
 == ขั้นต่อไปที่วางไว้ ==
-1) ผู้ใช้แตกซิป รัน workflow โดยติ๊ก fullbuild (mode=lto) แล้วส่ง lift-report กลับ
-   ดู: difftest.log (ต้อง 258/258), fullbuild.txt (compile ผ่านทุกไฟล์ไหม, เวลา, RAM, ThinLTO link ไหวไหม)
-2) ถ้า ThinLTO ใช้ RAM/เวลาเกิน: ลอง fullbuild_mode=nolto; หรือลด -O เป็น -O1; หรือแบ่งเป็น static lib หลายก้อน; ดูโควตา private repo (2,000 นาที/เดือน)
-3) (ทางเลือก) เพิ่ม bsr / fisttp / fcmov* ถ้าจำเป็น (เหลือ 39 จุด unimplemented ที่เกือบทั้งหมดเป็นข้อมูล)
-4) ออกแบบ host layer (เริ่มจาก nfsu2-recompiled/android): PE loader ของ DLL (base 0x10000000, relocation, IAT),
-   Win32 HLE ที่ DLL ใช้, D3D9 -> DXVK (Direct3DCreate9 อย่างเดียว), DirectSound/waveOut -> AAudio,
-   XInput/ทัช, stub binkw32 (ข้ามวิดีโอ), launcher ฝั่ง host เรียก Engine* exports (ไม่ lift exe)
-5) ตั้ง Gradle/NDK build บน Actions (อิง android/ ของ nfsu2: NDK 28.2.13676358, SDK 35, CMake 3.30.5);
-   host/arm64_guest.h ใช้เป็น -include ได้เลย
+1) รัน workflow ติ๊ก fullbuild (mode=lto) อีกครั้งเพื่อได้เวลา/RAM ของ ThinLTO จริง (คาดรวม ~15-30 นาที); ถ้า RAM/เวลาไม่ไหวลอง nolto หรือ -O1
+2) ตัดสินใจเรื่อง msvcr80 (ตัวเลือก A: HLE บน bionic, B: lift msvcr80.dll เป็นโมดูลที่สอง + override) ผู้ใช้ต้องบอกว่ามี msvcr80.dll ไหม
+3) เริ่มโครง Android (อิง nfsu2-recompiled/android: guest_memory/guest_runtime/guest_*.inc/d3d9_bridge/main.cpp, ~490KB ซอร์ส):
+   PE loader ของ DLL (base 0x10000000, relocation, IAT), HLE ที่ขาดตามตารางใน docs/STAGE2_IMPORT_GAP.md, waveOut -> AAudio,
+   XInput/ทัช, stub binkw32/ws2_32/setupapi/ole, launcher ฝั่ง host เรียก Engine* exports (ไม่ lift exe), fiber ด้วยเธรดส่งต่อ machine lock
+4) ตั้ง Gradle/NDK build บน Actions (NDK 28.2.13676358, SDK 35, CMake 3.30.5); host/arm64_guest.h ใช้เป็น -include ได้เลย
+5) (ทางเลือก) bsr / fisttp / fcmov* ถ้าเกมชน
 
 == ข้อควรระวัง ==
 - ไฟล์เกมและโค้ด C ที่ได้มีลิขสิทธิ์: repo ต้อง private, ห้ามเผยแพร่โค้ดที่แปลงหรือ APK ที่รวมไฟล์เกม
