@@ -1,6 +1,6 @@
 HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native ด้วยการแปลง DLL เป็น C
 (ไฟล์นี้ไว้ส่งต่อให้ AI ตัวอื่นทำต่อ — อัปเดตทุกครั้งที่ส่งงานใหม่)
-อัปเดตล่าสุด: 2026-10-23 (รอบที่ 3)
+อัปเดตล่าสุด: 2026-10-24 (รอบที่ 4)
 
 == เป้าหมาย ==
 - ทำ APK Android (arm64) ที่รัน Prototype (Radical Entertainment, 2009) แบบ native
@@ -70,19 +70,38 @@ HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native
 - scripts/compile_check.sh, scripts/lift_diagnostics.py (เพิ่ม big_functions)
 - สิ่งที่คาดหวังจากการรันครั้งหน้า: unimplemented_total ลดจาก 4,421 เหลือ ~45, lift_failures ยัง 0, compile-check ผ่าน
 
+== ผลรันจริงของรอบที่ 3 (ยืนยัน 2026-10-24) ==
+- ตัวแปะ lifter ใช้ได้: unimplemented 4,421 -> 41; lift_failures ยัง 0; lift เร็วขึ้นเป็น 103 วินาที; C 13,576,260 บรรทัด
+- compile-check (clang ARM64, -fsyntax-only, -Werror=implicit-function-declaration) ผ่านทั้ง 4 ไฟล์ที่มีคำสั่งใหม่ (recomp_0001/0005/0017/0250)
+- ที่เหลือ 41 จุดเป็นข้อมูลที่ถูกถอดเป็นโค้ดเกือบทั้งหมด (aas 13, int1 5, daa 4, int 2, ljmp 2, hlt 2, ...)
+  ที่น่าจะเป็นโค้ดจริง: bsr x2 (`bsr eax, [esp+N]`), fisttp x1, fcmovb x1, fcmovnbe x1 -> ยังไม่ได้ทำ (ถ้าเกมไม่ชนก็ปล่อย; ชนแล้วจะ RECOMP_UNIMPL ดังชัด)
+- difftest ยังไม่ได้ผล: ล้มตอน link เพราะ harness ของ pcrecomp ไม่ใส่ -lm (undefined reference to sqrt/floor/...) ไม่เกี่ยวกับโค้ดเรา
+  รอบนี้เพิ่ม wrapper (gcc/cc/clang ต่อท้าย -lm ผ่าน PATH) -> ดู work/difftest.log ว่าเคส ptt.* ผ่านหรือไม่ (ถ้า harness ใช้ path เต็ม /usr/bin/gcc wrapper จะไม่ทำงาน -> แก้ในไฟล์ difftest.py ของ pcrecomp แทน)
+
+== สาเหตุไฟล์ยักษ์ recomp_0327.c (87MB, compile 518 วินาที, RAM 8GB) ==
+- big_functions.txt: ฟังก์ชัน 25 อันดับแรกอยู่ในไฟล์นี้หมด ที่อยู่ 0x109D3xxx-0x109D4Bxx ขนาดเท่ากันเป๊ะ 490,725 ไบต์ (ยกเว้น sub_109D0150 = 497,981)
+- ไบต์จริงใน DLL: 0x109D0150 ขึ้นต้น `55 8B EC 83 E4 C0 81 EC B4 06 00 00` (push ebp; mov ebp,esp; and esp,-64; sub esp,0x6B4) = ฟังก์ชันจริงขนาดใหญ่ (~19KB x86)
+  ส่วน 0x109D3E0D / 0x109D4B2C ฯลฯ ไม่มี prologue = จุดกลางฟังก์ชัน
+- สรุป: catalog จดจุดกลางฟังก์ชัน ~177 จุดเป็น "ฟังก์ชัน" แยก (น่าจะมาจาก seed สแกน vtable/RTTI ที่เอาปลายทางของ jump table ของ switch ใหญ่ไปเป็นเมธอด)
+  แต่ละสำเนาถูก lift พร้อมโค้ดแทบทั้งฟังก์ชัน => 177 x ~490KB = ~87MB (ข้อนี้เป็นสมมติฐานที่สอดคล้องกับข้อมูล; entry_kind ยังไม่เห็น)
+- รอบนี้เพิ่ม scripts/dedupe_catalog.py + ขั้น "Dedupe catalog" (input dedupe ค่าเริ่มต้น true): ตัดฟังก์ชัน F ที่ (1) อยู่ในบล็อกของฟังก์ชันอื่นที่เริ่มที่ address ต่ำกว่า
+  (2) ไม่มีใครเรียกตรง (calls_to) (3) ไม่ถูก jump มาจากฟังก์ชันที่ไม่ครอบคลุมจุดนั้น (4) ไม่ใช่ export/entry/thunk; ผลสรุปอยู่ใน work/dedupe_report.txt
+  ทดสอบกฎด้วย catalog จำลองแล้ว (รวมกรณีสำเนาที่วนกลับมาครอบ address ของฟังก์ชันจริง -> ฟังก์ชันจริงไม่ถูกตัด) **ยังไม่ได้รันกับ catalog จริง**
+- สิ่งที่ต้องดูในรายงานรอบหน้า: (ก) dropped กี่ตัว/entry_kind อะไร (ข) host อันดับต้น = sub_109D0150 หรือไม่ (ค) ไฟล์ใหญ่สุดหลัง lift ลดจาก 87MB เหลือเท่าไร
+  (ง) ถ้า "kept because directly called" สูงผิดปกติ แปลว่า catalog นับปลายทางพวกนี้เป็น call -> ต้องใช้กฎอื่น
+- ความเสี่ยง: ถ้ามีฟังก์ชันจริงที่ถูกเรียกผ่าน function pointer อย่างเดียวและตั้งอยู่กลางฟังก์ชันอื่น จะถูกตัด (ไม่น่ามากับ MSVC 2005 ปกติ);
+  ถ้าตัดผิด รันเกมแล้ว call ไปที่นั่นจะล้มดังๆ ที่ตารางกระจายฟังก์ชัน -> ปิด dedupe หรือยกเว้นรายตัวได้
+
 == ขั้นต่อไปที่วางไว้ ==
-1) ผู้ใช้แตกซิป รัน workflow "Lift game DLL to C" (ไม่ต้องติ๊ก bench) แล้วส่ง artifact lift-report กลับมา
-   ดู: lift_stats.json (unimplemented เหลือเท่าไร), compile_check.txt, difftest.log, big_functions.txt
-2) ถ้า difftest.log ล้ม/ใช้แฟล็กไม่ถูก: ดูส่วน --help ในไฟล์แล้วปรับคำสั่งใน workflow; ถ้ามีเคส ptt.* ไม่ผ่าน ต้องแก้ ptt_lift_ext_src.py
-3) แก้ไฟล์ยักษ์ recomp_0327.c: ดู big_functions.txt ว่าฟังก์ชันไหนใหญ่; ถ้าเป็นข้อมูลไม่ใช่โค้ดให้ใส่ใน exclude.txt
-   (รูปแบบเดียวกับ nfsu2: lift/config/exclude.txt, ใช้ "excluded: not code") แล้ว lift ใหม่ หรือแยกไฟล์ด้วยแบบ scripts/split_android_sources.py ของ nfsu2
-   (แยกที่ขอบเขตฟังก์ชัน; ไม่ช่วยถ้าเป็นฟังก์ชันเดียวขนาดมหึมา)
-4) ตรวจ bsr / fisttp / fcmovb / fcmovnbe (จุดที่น่าจะเป็นโค้ดจริง) และเพิ่มถ้าจำเป็น
-5) วัด ThinLTO link กับตัวอย่างจริง และตัดสินใจแฟล็ก (-O2/-O1, LTO on/off, จำนวน job ขนาน)
-6) ออกแบบ host layer (เริ่มจาก nfsu2-recompiled/android): PE loader ของ DLL (base 0x10000000, relocation, IAT),
+1) ผู้ใช้แตกซิป รัน workflow "Lift game DLL to C" (catalog ใช้ cache เดิมเร็ว; dedupe เปิดอยู่) ส่ง artifact lift-report กลับมา
+   ดู: dedupe_report.txt, lift_stats.json (functions/c_lines), big_functions.txt (ไฟล์ใหญ่สุด), difftest.log, compile_check.txt
+2) ถ้าไฟล์ใหญ่หมดปัญหา: ติ๊ก bench รัน 1 ครั้งเพื่อวัดเวลา/RAM ใหม่ แล้ววัด ThinLTO link ตัดสินแฟล็ก (-O2/-O1, LTO on/off, จำนวน job ขนาน)
+3) ถ้า difftest เคส ptt.* ไม่ผ่าน ต้องแก้ patches/ptt_lift_ext_src.py ก่อนไปต่อ
+4) (ทางเลือก) เพิ่ม bsr / fisttp / fcmov* ถ้าจำเป็น
+5) ออกแบบ host layer (เริ่มจาก nfsu2-recompiled/android): PE loader ของ DLL (base 0x10000000, relocation, IAT),
    Win32 HLE ที่ DLL ใช้, D3D9 -> DXVK (Direct3DCreate9 อย่างเดียว), DirectSound/waveOut -> AAudio,
    XInput/ทัช, stub binkw32 (ข้ามวิดีโอ), launcher ฝั่ง host เรียก Engine* exports (ไม่ lift exe)
-7) ตั้ง Gradle/NDK build บน Actions (อิง android/ ของ nfsu2: NDK 28.2.13676358, SDK 35, CMake 3.30.5);
+6) ตั้ง Gradle/NDK build บน Actions (อิง android/ ของ nfsu2: NDK 28.2.13676358, SDK 35, CMake 3.30.5);
    host/arm64_guest.h ใช้เป็น -include ได้เลย
 
 == ข้อควรระวัง ==

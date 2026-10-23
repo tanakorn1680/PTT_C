@@ -12,6 +12,10 @@ on:
         description: "วิเคราะห์ใหม่ทั้งหมด (ไม่ใช้ cache ของ catalog)"
         type: boolean
         default: false
+      dedupe:
+        description: "ตัดจุดเข้ากลางฟังก์ชันที่ซ้ำ (แก้ไฟล์ C ยักษ์ 87MB) ดู work/dedupe_report.txt"
+        type: boolean
+        default: true
       bench:
         description: "วัดเวลา/RAM การ compile ARM64 จากไฟล์ตัวอย่าง (ไม่เก็บโค้ดเกม; ไฟล์ใหญ่สุดใช้ ~9 นาที/8GB)"
         type: boolean
@@ -60,7 +64,12 @@ jobs:
       - name: difftest of the lifter against Unicorn (informational)
         continue-on-error: true
         run: |
-          mkdir -p work
+          mkdir -p work /tmp/lmwrap
+          for cc in gcc cc clang; do
+            real=$(command -v $cc || true); [ -n "$real" ] || continue
+            printf '#!/bin/sh\nexec %s "$@" -lm\n' "$real" > /tmp/lmwrap/$cc; chmod +x /tmp/lmwrap/$cc
+          done
+          export PATH=/tmp/lmwrap:$PATH
           cd pcrecomp
           { python tools/lift/difftest.py --help 2>&1 | head -n 30; echo ------; \
             timeout 900 python tools/lift/difftest.py 2>&1 | tail -n 80; } > ../work/difftest.log || true
@@ -111,9 +120,17 @@ jobs:
             || { tail -n 60 work/catalog.log; exit 1; }
           grep -v "Disassembling function" work/catalog.log | tail -n 20
 
+      - name: Dedupe catalog (drop mid-function duplicate entries)
+        run: |
+          if [ "${{ inputs.dedupe }}" = "true" ]; then
+            python scripts/dedupe_catalog.py work/catalog.json work/catalog_lift.json work/dedupe_report.txt
+          else
+            cp work/catalog.json work/catalog_lift.json; echo "dedupe off" > work/dedupe_report.txt
+          fi
+
       - name: Lift to C (~4 min)
         run: |
-          python lift/scripts/run_lift.py lift "$DLL" work/catalog.json work/gen > work/lift.log 2>&1 \
+          python lift/scripts/run_lift.py lift "$DLL" work/catalog_lift.json work/gen > work/lift.log 2>&1 \
             || { tail -n 60 work/lift.log; exit 1; }
           tail -n 30 work/lift.log
 
@@ -142,6 +159,7 @@ jobs:
             echo '```'
             du -sh work/gen 2>/dev/null | sed 's/^/generated C size: /'
             if [ -f work/bench.txt ]; then echo "### Compile benchmark"; echo '```'; cat work/bench.txt; echo '```'; fi
+            if [ -f work/dedupe_report.txt ]; then echo "### Dedupe"; echo '```'; head -n 40 work/dedupe_report.txt; echo '```'; fi
             if [ -f work/compile_check.txt ]; then echo "### Compile check"; echo '```'; cat work/compile_check.txt; echo '```'; fi
             if [ -f work/difftest.log ]; then echo "### difftest (tail)"; echo '```'; tail -n 15 work/difftest.log; echo '```'; fi
             if [ -f work/big_functions.txt ]; then echo "### Largest files/functions"; echo '```'; head -n 30 work/big_functions.txt; echo '```'; fi
@@ -162,5 +180,6 @@ jobs:
             work/unimpl_forms.txt
             work/lifter_excerpt.txt
             work/big_functions.txt
+            work/dedupe_report.txt
             work/compile_check.txt
             work/difftest.log
