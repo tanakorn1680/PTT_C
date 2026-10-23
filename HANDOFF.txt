@@ -1,45 +1,90 @@
 HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native ด้วยการแปลง DLL เป็น C
 (ไฟล์นี้ไว้ส่งต่อให้ AI ตัวอื่นทำต่อ — อัปเดตทุกครั้งที่ส่งงานใหม่)
+อัปเดตล่าสุด: 2026-10-23 (รอบที่ 2)
 
 == เป้าหมาย ==
 - ทำ APK Android (arm64) ที่รัน Prototype (Radical Entertainment, 2009) แบบ native
   ด้วยแนวทาง static recompilation เหมือนโปรเจกต์ codepdbh/nfsu2-recompiled
   (x86 -> C ด้วย pcrecomp -> compile ด้วย NDK; กราฟิก D3D9 -> Vulkan ผ่าน DXVK)
-- ผู้ใช้มีไฟล์เกมของแท้ และต้องการประสิทธิภาพสูงสุด (ไม่ใช้ตัวจำลองอย่าง Winlator)
+- ผู้ใช้มีไฟล์เกมของแท้ และต้องการประสิทธิภาพสูงสุด (ห้ามใช้ตัวจำลอง/emulator เช่น Winlator, Box64)
 
-== ข้อจำกัดของผู้ใช้ ==
+== ข้อจำกัดของผู้ใช้ / วิธีทำงาน ==
 - มีแต่มือถือ Android ไม่มีคอม ใช้ GitHub Actions (repo ต้อง private)
-- สื่อสารภาษาไทย; ส่งอัปเดตเป็น ZIP เฉพาะไฟล์ที่เปลี่ยน แตกลง root ของ repo ได้เลย
-- ผู้ใช้เปลี่ยนชื่อ DLL เป็น game/engine.dll ใน repo (ชื่ออะไรก็ได้ workflow เลือก .dll ที่ใหญ่สุดใน game/)
+- สื่อสารภาษาไทย
+- ส่งงานเป็น ZIP เฉพาะไฟล์ที่เปลี่ยน โครงโฟลเดอร์ตรงกับ root ของ repo (แตกทับได้เลย)
+- ไม่ต้องทดสอบ/ทำอะไรเกินจำเป็น; บันทึกความคืบหน้าไว้ในไฟล์นี้ทุกครั้ง
+- ผู้ใช้เปลี่ยนชื่อ DLL เป็น game/engine.dll ใน repo (workflow เลือก .dll ที่ใหญ่สุดใน game/)
   ในโฟลเดอร์เกมจริงต้องใช้ชื่อเดิม (prototypeenginef.dll)
+- AI ที่ทำงานในแชตไม่มีเน็ต (ดึง pcrecomp/NDK ไม่ได้) => ทดสอบจริงได้แค่บน GitHub Actions
+  ผู้ใช้เป็นคนรัน workflow แล้วส่ง artifact "lift-report" กลับมา
 
 == ข้อมูลที่ยืนยันแล้ว (จากการตรวจไฟล์) ==
-- prototypef.exe = ตัวเปิด (launcher) โค้ดจริงราว 8KB ที่เหลือคือรีซอร์ส; โหลด DLL ของ engine แล้วเรียก export
-  (EngineInitialize, EngineService, EngineTerminate, EngineWindowFocus, EngineMouseService, EngineKeyboardService, MainWin32)
-  ชื่อ DLL ที่ exe โหลดยังไม่ยืนยัน (เดาจากสตริง "f.dll")
+- prototypef.exe = ตัวเปิด (launcher) โค้ดจริงราว 8KB; โหลด DLL ของ engine แล้วเรียก export
+  (EngineInitialize, EngineService, EngineTerminate, EngineWindowFocus, EngineMouseService,
+   EngineKeyboardService, MainWin32). ชื่อ DLL ที่ exe โหลดยังไม่ยืนยัน (เดาจากสตริง "f.dll")
+  แนวทางที่เสนอ: ไม่ lift exe แต่เขียน launcher ใหม่ฝั่ง host เรียก export เหล่านี้เอง
 - prototypeenginef.dll: PE32 x86, 20.2MB, build 2009-04-22, MSVC 2005 (MSVCR80), ไม่ถูกห่อ/เข้ารหัส,
-  ไม่พบสตริง SecuROM/StarForce/Steam, ไม่ใช่ large-address-aware, มี relocation table
-- import: d3d9 (แค่ Direct3DCreate9), DirectSound, WINMM waveOut, XINPUT1_3, WS2_32, binkw32.dll (วิดีโอ Bink ปิดซอร์ส)
+  ไม่พบสตริง SecuROM/StarForce/Steam, ไม่ใช่ large-address-aware, มี relocation table, image base 0x10000000
+- import: d3d9 (แค่ Direct3DCreate9), DirectSound, WINMM waveOut, XINPUT1_3, WS2_32,
+  binkw32.dll (วิดีโอ Bink ปิดซอร์ส -> ต้อง stub/ข้ามบน Android)
 - Scaleform GFx (UI) ลิงก์อยู่ใน DLL, มีสคริปต์ Lua ในตัวเกม, .text ราว 14MB
 
-== ผลการแปลง (รันในเครื่อง sandbox: pcrecomp 35548b8 + patches 0001-0014 จาก upstream c27896e3) ==
-- 151,652 ฟังก์ชัน, C 13,565,239 บรรทัด (380 ไฟล์ ~607MB), lift ล้มเหลว 0
-- จุดที่ยังไม่รองรับ 4,421: fcompi 2605, fcomi 803, lock 658, fucompi 314, อื่นๆ <30 (aas/int1/daa/int/ljmp/bsr/hlt/salc)
+== ผลการแปลง: workflow lift-prototype.yml รันบน Actions จริงแล้ว (ยืนยัน 2026-10-23) ==
+- ตรงกับผลใน sandbox ทุกตัวเลข: 151,652 ฟังก์ชัน, C 13,565,239 บรรทัด (380 ไฟล์, --split 400 ฟังก์ชัน/ไฟล์),
+  lift ล้มเหลว 0, catalog 511 วินาที, lift 179 วินาที
+- เครื่องมือ: pcrecomp 35548b8 + patches 0001-0014 จาก codepdbh/nfsu2-recompiled @ c27896e3
+- จุดที่ยังไม่รองรับ 4,421 (เป็นแค่ RECOMP_UNIMPL ในโค้ด ไม่ทำให้ lift/compile ล้ม):
+  fcompi 2605, fcomi 803, lock 658, fucompi 314, อื่นๆ <30 (aas/int1/daa/int/ljmp/bsr/hlt/salc/fisttp/fcmov*/...)
+  ตัวอื่นๆ ส่วนใหญ่น่าจะเป็นไบต์ข้อมูลที่ถูก disassemble เป็นโค้ด (ไม่มีวันถูกรัน) ยกเว้น bsr/fisttp/fcmov* ควรตรวจ
 - indirect call 42,871 จุด, indirect tail 41,857 จุด
-- catalog ~549 วินาที RAM ~3GB; lift ~202 วินาที RAM ~0.5GB
+- เทียบ NFSU2: ~27,700 ฟังก์ชัน/~9M บรรทัด => Prototype ฟังก์ชันมากกว่า ~5.5 เท่า, บรรทัดมากกว่า ~1.5 เท่า
 
-== ยังไม่ได้ทำ ==
-- workflow lift-prototype.yml ยังไม่เคยรันบน Actions จริง
-- ขั้น compile C 13.6 ล้านบรรทัดเป็น ARM64: ยังไม่รู้เวลา/RAM บนรันเนอร์ private (2 vCPU / 7GB)
-- ส่วน host/runtime ยังไม่เริ่ม: จำลอง Win32 API, D3D9 -> DXVK, เสียง, อินพุต/ทัช, ข้ามวิดีโอ Bink ก่อน, ตัวโหลด DLL/launcher
-- ยังไม่ได้ lift ตัว exe (launcher)
+== งานที่ทำในรอบที่ 2 (ส่งในซิปนี้) ==
+- workflow: เพิ่ม input bench (ค่าเริ่มต้น true) และ bench_files (6); เพิ่มขั้น
+  1) scripts/lift_diagnostics.py -> work/lifter_excerpt.txt (ส่วนของ lift32.py: ซอร์สของ "เครื่องมือ" ไม่ใช่โค้ดเกม)
+     และ work/unimpl_forms.txt (รูปแบบคำสั่งที่ยังไม่รองรับ จัดกลุ่มพร้อมจำนวน)
+  2) scripts/bench_compile.sh -> work/bench.txt วัดเวลา/RAM compile ARM64 (NDK clang -O2 แฟล็กเดียวกับ nfsu2) จากไฟล์ตัวอย่าง
+     (ไฟล์ใหญ่สุด + กระจายเท่าๆ กัน) แล้วประมาณเวลา build ทั้งหมด; ไม่รวมต้นทุน ThinLTO link
+  3) ผลทั้งหมดแสดงใน step summary และอัปโหลดใน artifact lift-report
+- host/arm64_guest.h: ฉบับ generic ของ arm64_guest.h ใน NFSU2 (ตัดฮุกเฉพาะ NFSU2 ที่ 0x005BF610 ออก)
+  ใช้เป็น -include ตอน compile โค้ดที่ lift
+- ยังไม่ได้รันอะไรเหล่านี้บน Actions (ตรวจแค่ syntax: bash -n, py_compile, yaml)
+
+== ทำไมยังไม่ได้เขียน patch fcomi/lock (ตัดสินใจโดยตั้งใจ) ==
+- ต้องแก้ tools/lift/lift32.py ของ pcrecomp แต่ซอร์สไม่อยู่ในแชต (ไม่มีเน็ต) เห็นแค่ส่วนจาก patch 0002/0004/0008/0014
+  การเขียนสุ่มแล้วผิด = เปรียบเทียบ float ผิดเงียบๆ ในเกม ซึ่งแย่กว่า RECOMP_UNIMPL ที่ล้มดังๆ
+- สิ่งที่รู้แล้ว (ใช้ออกแบบได้เลยเมื่อเห็นซอร์ส):
+  * lift32 ใช้โครง `elif m == '...'` ในคลาส Lifter; ตัวอย่างสาขาใหม่ดู patch 0004 (lahf/fnstenv)
+  * สถานะเทียบ x87 แบบเดิมคือตัวแปร _fpu_cmp (0=เท่ากัน, <0=น้อยกว่า, 2=unordered, >=0x10000=ค่า SW ดิบ)
+    และ sahf ต่อจาก fcom ถูกทำให้ยังคงสถานะนี้ไว้
+  * ส่วน SSE ucomiss/comisd (patch 0002, simd32.py) ตั้ง EFLAGS ตรงๆ แบบนี้ ซึ่งนำมาใช้กับ fcomi ได้:
+      L._flag_state = ('eflags', '_flag_a, _flag_b'); L._flag_seq += 1
+      _flag_a = simd_comi_eflags((double)(x), (double)(y)); _flag_b = 0; _flag_k = FK_EFLAGS; _cf = _flag_a & 1u;
+  * ความหมาย x86: fcomi/fucomi st0, sti ตั้ง ZF,PF,CF = (มากกว่า 000 / น้อยกว่า CF / เท่ากัน ZF / unordered ZF+PF+CF)
+    ตรงกับ ucomisd พอดี => x = ST(0), y = ST(i); fcompi/fucompi = เหมือนกัน แล้ว fp_pop() อีกครั้ง
+  * x87 ใช้มาโคร fp_push(v)/fp_pop() และ ST(i) = g_st[i] ภายใต้ RECOMP_X87_WINDOW (ในโค้ดที่ lift ใช้ตัวแปรท้องถิ่น _st, _fp_top)
+  * lock: เธรดของ guest รันภายใต้ "machine lock" แบบ FIFO ticket (patch 0008) สลับเธรดเฉพาะจุด call/back-edge
+    ดังนั้น `lock <op>` ทำเป็น <op> ธรรมดาได้ (atomic โดยปริยาย) แต่ต้องดูว่ารูปแบบไหนที่ lifter ยังไม่รับ
+    (difftest ของ upstream มี Case 'lock.inc' ผ่านแล้ว) -> ดู work/unimpl_forms.txt
+- ช่องที่ยังไม่รู้ (ต้องดู lifter_excerpt.txt): ชื่อฟังก์ชัน/ตัวช่วยอ่านตัวถูกดำเนินการ st(i) ใน lift32.py,
+  จุดที่ lifter จัดการ prefix lock, และวิธีที่ fcom ปัจจุบันเขียน _fpu_cmp
 
 == ขั้นต่อไปที่วางไว้ ==
-1) รัน workflow ให้ได้ตัวเลขเท่ากับข้างบน (ถ้าไม่ตรง ขอ log จากผู้ใช้)
-2) เขียน patch เพิ่มให้ pcrecomp lift32 รองรับ fcomi/fcompi/fucompi และ prefix lock
-3) ทดสอบ compile ส่วนเล็กเพื่อวัดเวลา/RAM ก่อนตัดสินใจทำต่อ
-4) ออกแบบ host layer
+1) ผู้ใช้รัน workflow "Lift game DLL to C" (ติ๊ก bench ไว้) แล้วส่งกลับ: artifact lift-report ทั้งก้อน
+   (โดยเฉพาะ bench.txt, unimpl_forms.txt, lifter_excerpt.txt) หรือแคปหน้า Summary
+2) จากผล bench ตัดสินใจเรื่อง build บน Actions:
+   - ถ้าเวลา/RAM ไหว: ใช้ -O2 (+ThinLTO ถ้า RAM พอ) ถ้าไม่ไหว: ลดเป็น -O1, ปิด LTO, จำกัด job ขนาน,
+     แบ่งเป็น static lib หลายก้อน, หรือใช้ runner ใหญ่ (ต้องดูโควตา private repo 2,000 นาที/เดือน)
+   - ถ้า compile ตัวอย่างมี error ให้แก้ก่อน (ตรวจ header/มาโครที่ขาด)
+3) เขียน patch pcrecomp สำหรับ fcomi/fcompi/fucomi/fucompi + lock (patches/pcrecomp/0015-*.patch หรือสคริปต์แก้ไขตอน CI)
+   โดยอิงซอร์สจริงจาก lifter_excerpt.txt แล้วรัน lift ใหม่ให้ unimplemented ลดเหลือส่วนที่เป็นข้อมูลล้วน
+4) ออกแบบ host layer (เริ่มจาก nfsu2-recompiled/android): PE loader ของ DLL (base 0x10000000, relocation, IAT),
+   Win32 HLE ที่ DLL ใช้, D3D9 -> DXVK (Direct3DCreate9 อย่างเดียว), DirectSound/waveOut -> AAudio,
+   XInput/ทัช, stub binkw32 (ข้ามวิดีโอ), launcher ฝั่ง host เรียก Engine* exports
+5) ตั้ง Gradle/NDK build บน Actions (อิง android/ ของ nfsu2: NDK 28.2.13676358, SDK 35, CMake 3.30.5)
 
 == ข้อควรระวัง ==
 - ไฟล์เกมและโค้ด C ที่ได้มีลิขสิทธิ์: repo ต้อง private, ห้ามเผยแพร่โค้ดที่แปลงหรือ APK ที่รวมไฟล์เกม
-- ลบไฟล์เกมออกจาก repo หลังใช้เสร็จ
+  workflow ตั้งใจไม่อัปโหลดโค้ดที่ lift (อัปโหลดแค่ log/สถิติ/ผล bench) อย่าเปลี่ยนจุดนี้
+- ลบไฟล์เกม (game/engine.dll) ออกจาก repo หลังใช้เสร็จ
+- ต้องใช้ exe/DLL ที่ไม่มีตัวป้องกันเท่านั้น

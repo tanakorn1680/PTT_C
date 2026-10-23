@@ -12,6 +12,14 @@ on:
         description: "วิเคราะห์ใหม่ทั้งหมด (ไม่ใช้ cache ของ catalog)"
         type: boolean
         default: false
+      bench:
+        description: "วัดเวลา/RAM การ compile ARM64 จากไฟล์ตัวอย่าง (ไม่เก็บโค้ดเกม)"
+        type: boolean
+        default: true
+      bench_files:
+        description: "จำนวนไฟล์ตัวอย่างที่ใช้วัด"
+        type: string
+        default: "6"
 
 jobs:
   lift:
@@ -97,6 +105,17 @@ jobs:
             || { tail -n 60 work/lift.log; exit 1; }
           tail -n 30 work/lift.log
 
+      - name: Diagnostics for fcomi/lock support (lifter source excerpt + unimplemented forms)
+        if: always()
+        run: |
+          python scripts/lift_diagnostics.py pcrecomp/tools/lift/lift32.py work/gen work || true
+
+      - name: Measure ARM64 compile cost on a sample of the generated C
+        if: ${{ inputs.bench }}
+        continue-on-error: true
+        run: |
+          bash scripts/bench_compile.sh work/gen pcrecomp host/arm64_guest.h "${{ inputs.bench_files }}" work/bench.txt
+
       - name: Summary
         if: always()
         run: |
@@ -106,6 +125,8 @@ jobs:
             tail -n 40 work/lift.log 2>/dev/null || tail -n 40 work/catalog.log
             echo '```'
             du -sh work/gen 2>/dev/null | sed 's/^/generated C size: /'
+            if [ -f work/bench.txt ]; then echo "### Compile benchmark"; echo '```'; cat work/bench.txt; echo '```'; fi
+            if [ -f work/unimpl_forms.txt ]; then echo "### Unimplemented forms (top 25)"; echo '```'; head -n 27 work/unimpl_forms.txt; echo '```'; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload stats and logs (no game-derived code)
@@ -118,3 +139,6 @@ jobs:
             work/catalog.log
             work/lift.log
             work/gen/lift_stats.json
+            work/bench.txt
+            work/unimpl_forms.txt
+            work/lifter_excerpt.txt
