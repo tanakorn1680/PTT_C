@@ -21,14 +21,16 @@ def _ptt_ext_emit(lifter, m, ops, comment):
     """C lines for the mnemonics above, or None when this exact form is not handled
     (the caller then falls through to the loud RECOMP_UNIMPL)."""
     if m in ('fcomi', 'fucomi', 'fcompi', 'fucompi'):
-        # Same model as the existing fcomip branch (FPU_CMP + the 'fcom' flag state),
-        # but with the real st(i) operand instead of a fixed st(1).
+        # Sets a REAL EFLAGS image (ZF/PF/CF), exactly like the SSE ucomisd path (simd_comi_eflags:
+        # unordered 0x45, less CF, equal ZF). The 'fcom' flag state used by fcomip does not survive a
+        # `lahf`, an `sbb`/`adc`, or a pushf; difftest showed lahf after fcomi reading 0.
+        # fcomi leaves C0..C3 of the status word alone, so _fpu_cmp is not touched.
         src = reg_name(ops[-1].reg) if ops and ops[-1].type == X86_OP_REG else "_st[1]"
-        lines = [f"_fpu_cmp = FPU_CMP(_st[0], {src}); {comment}"]
+        lines = [f"_flag_a = simd_comi_eflags((double)(_st[0]), (double)({src})); _flag_b = 0; "
+                 f"_flag_k = FK_EFLAGS; _cf = _flag_a & 1u; {comment}"]
         if m in ('fcompi', 'fucompi'):
             lines.append("fp_pop();")
-        lines.append("_flag_a = (uint32_t)_fpu_cmp; _flag_b = 0;")
-        lifter._flag_state = ('fcom', '_fpu_cmp')
+        lifter._flag_state = ('eflags', '_flag_a, _flag_b')
         lifter._flag_seq += 1
         return lines
 

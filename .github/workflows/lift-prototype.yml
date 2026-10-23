@@ -16,6 +16,14 @@ on:
         description: "ตัดจุดเข้ากลางฟังก์ชันที่ซ้ำ (แก้ไฟล์ C ยักษ์ 87MB) ดู work/dedupe_report.txt"
         type: boolean
         default: true
+      fullbuild:
+        description: "compile C ทั้งหมดเป็น ARM64 + ลอง ThinLTO link เพื่อวัดเวลา/RAM จริง (ช้า ~15-60 นาที)"
+        type: boolean
+        default: false
+      fullbuild_mode:
+        description: "lto (เหมือน nfsu2) หรือ nolto"
+        type: string
+        default: "lto"
       bench:
         description: "วัดเวลา/RAM การ compile ARM64 จากไฟล์ตัวอย่าง (ไม่เก็บโค้ดเกม; ไฟล์ใหญ่สุดใช้ ~9 นาที/8GB)"
         type: boolean
@@ -143,6 +151,13 @@ jobs:
         continue-on-error: true
         run: bash scripts/compile_check.sh work/gen pcrecomp host/arm64_guest.h work/compile_check.txt
 
+      - name: Full ARM64 compile + link (measure real build cost)
+        if: ${{ inputs.fullbuild }}
+        continue-on-error: true
+        timeout-minutes: 200
+        run: |
+          bash scripts/full_compile.sh work/gen pcrecomp host/arm64_guest.h work/fb work/fullbuild.txt "${{ inputs.fullbuild_mode }}"
+
       - name: Measure ARM64 compile cost on a sample of the generated C
         if: ${{ inputs.bench }}
         continue-on-error: true
@@ -159,6 +174,7 @@ jobs:
             echo '```'
             du -sh work/gen 2>/dev/null | sed 's/^/generated C size: /'
             if [ -f work/bench.txt ]; then echo "### Compile benchmark"; echo '```'; cat work/bench.txt; echo '```'; fi
+            if [ -f work/fullbuild.txt ]; then echo "### Full build"; echo '```'; cat work/fullbuild.txt; echo '```'; fi
             if [ -f work/dedupe_report.txt ]; then echo "### Dedupe"; echo '```'; head -n 40 work/dedupe_report.txt; echo '```'; fi
             if [ -f work/compile_check.txt ]; then echo "### Compile check"; echo '```'; cat work/compile_check.txt; echo '```'; fi
             if [ -f work/difftest.log ]; then echo "### difftest (tail)"; echo '```'; tail -n 15 work/difftest.log; echo '```'; fi
@@ -181,5 +197,6 @@ jobs:
             work/lifter_excerpt.txt
             work/big_functions.txt
             work/dedupe_report.txt
+            work/fullbuild.txt
             work/compile_check.txt
             work/difftest.log
