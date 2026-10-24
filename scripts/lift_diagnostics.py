@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Post-lift diagnostics for the next step (fcomi/fcompi/fucomi/lock support).
 
-  lift_diagnostics.py <lift32.py> <gen_dir> <out_dir>
+  lift_diagnostics.py <lift32.py> <gen_dir> <out_dir> [file_prefix]
 
 Writes:
   lifter_excerpt.txt  - parts of pcrecomp's lift32.py (TOOL source, not game code): the x87
@@ -39,7 +39,7 @@ def dump(lines, title, pat, before, after, limit, w):
             w.write(f"{j + 1:5d}: {lines[j]}\n")
 
 
-def main(lift32, gen, outdir):
+def main(lift32, gen, outdir, prefix=""):
     os.makedirs(outdir, exist_ok=True)
     lines = open(lift32, errors="replace").read().splitlines()
     with open(os.path.join(outdir, "lifter_excerpt.txt"), "w") as w:
@@ -58,7 +58,7 @@ def main(lift32, gen, outdir):
 
     forms = collections.Counter()
     rx = re.compile(r'RECOMP_UNIMPL\(0x[0-9A-Fa-f]+u?, "([^"]*)"')
-    for p in sorted(glob.glob(os.path.join(gen, "recomp_[0-9][0-9][0-9][0-9].c"))):
+    for p in sorted(glob.glob(os.path.join(gen, prefix + "recomp_[0-9][0-9][0-9][0-9].c"))):
         with open(p, errors="replace") as fh:
             for ln in fh:
                 if "RECOMP_UNIMPL(" in ln:
@@ -72,10 +72,10 @@ def main(lift32, gen, outdir):
             w.write(f"{n:6d}  {f}\n")
 
 
-def big_functions(gen, outdir):
+def big_functions(gen, outdir, prefix=""):
     rx = re.compile(r"^void sub_([0-9A-Fa-f]{8})\(void\)")
     sizes = sorted(((os.path.getsize(p), os.path.basename(p))
-                    for p in glob.glob(os.path.join(gen, "recomp_[0-9][0-9][0-9][0-9].c"))), reverse=True)
+                    for p in glob.glob(os.path.join(gen, prefix + "recomp_[0-9][0-9][0-9][0-9].c"))), reverse=True)
     heap = []  # (bytes, addr, file)
     for _, name in sizes[:6]:
         cur, size = None, 0
@@ -103,7 +103,7 @@ def big_functions(gen, outdir):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
+    if len(sys.argv) not in (4, 5):
         sys.exit(__doc__)
     main(*sys.argv[1:])
-    big_functions(sys.argv[2], sys.argv[3])
+    big_functions(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) == 5 else "")

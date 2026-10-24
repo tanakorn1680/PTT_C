@@ -142,6 +142,23 @@ jobs:
             || { tail -n 60 work/lift.log; exit 1; }
           tail -n 30 work/lift.log
 
+      - name: Lift msvcr80.dll as a second module (CRT)
+        if: ${{ hashFiles('crt/msvcr80.dll') != '' }}
+        continue-on-error: true
+        run: |
+          CRT=crt/msvcr80.dll
+          python pcrecomp/tools/cpp/vtable_scan.py "$CRT" --seeds work/crt_vtable_seeds.json || true
+          python pcrecomp/tools/cpp/rtti.py "$CRT" --seeds work/crt_rtti_seeds.json || true
+          python scripts/make_seeds.py "$CRT" work/crt_seeds_all.json work/crt_vtable_seeds.json work/crt_rtti_seeds.json
+          python lift/scripts/run_lift.py catalog "$CRT" work/crt_seeds_all.json work/crt_catalog.json > work/crt_catalog.log 2>&1 \
+            || { tail -n 40 work/crt_catalog.log; exit 1; }
+          python scripts/dedupe_catalog.py work/crt_catalog.json work/crt_catalog_lift.json work/crt_dedupe_report.txt > /dev/null
+          python lift/scripts/run_lift.py lift "$CRT" work/crt_catalog_lift.json work/gen_crt --prefix msvcr80_ > work/crt_lift.log 2>&1 \
+            || { tail -n 40 work/crt_lift.log; exit 1; }
+          python scripts/lift_diagnostics.py pcrecomp/tools/lift/lift32.py work/gen_crt work/crt_diag msvcr80_ || true
+          tail -n 6 work/crt_lift.log
+          bash scripts/compile_crt_check.sh work/gen_crt pcrecomp host/arm64_guest.h work/crt_compile_check.txt msvcr80_
+
       - name: Diagnostics for fcomi/lock support (lifter source excerpt + unimplemented forms)
         if: always()
         run: |
@@ -175,6 +192,7 @@ jobs:
             du -sh work/gen 2>/dev/null | sed 's/^/generated C size: /'
             if [ -f work/bench.txt ]; then echo "### Compile benchmark"; echo '```'; cat work/bench.txt; echo '```'; fi
             if [ -f work/fullbuild.txt ]; then echo "### Full build"; echo '```'; cat work/fullbuild.txt; echo '```'; fi
+            if [ -f work/gen_crt/msvcr80_lift_stats.json ]; then echo "### msvcr80 (second module)"; echo '```'; cat work/gen_crt/msvcr80_lift_stats.json | head -n 14; head -n 3 work/crt_dedupe_report.txt; cat work/crt_compile_check.txt 2>/dev/null; head -n 20 work/crt_diag/unimpl_forms.txt 2>/dev/null; echo '```'; fi
             if [ -f work/dedupe_report.txt ]; then echo "### Dedupe"; echo '```'; head -n 40 work/dedupe_report.txt; echo '```'; fi
             if [ -f work/compile_check.txt ]; then echo "### Compile check"; echo '```'; cat work/compile_check.txt; echo '```'; fi
             if [ -f work/difftest.log ]; then echo "### difftest (tail)"; echo '```'; tail -n 15 work/difftest.log; echo '```'; fi
@@ -198,5 +216,11 @@ jobs:
             work/big_functions.txt
             work/dedupe_report.txt
             work/fullbuild.txt
+            work/gen_crt/msvcr80_lift_stats.json
+            work/crt_lift.log
+            work/crt_dedupe_report.txt
+            work/crt_compile_check.txt
+            work/crt_diag/unimpl_forms.txt
+            work/crt_diag/big_functions.txt
             work/compile_check.txt
             work/difftest.log

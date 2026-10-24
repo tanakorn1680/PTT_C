@@ -16,7 +16,8 @@ def main(dll, out, *seed_files):
     n_exp = 0
     for e in info.exports or []:
         rva = e.get("rva") if isinstance(e, dict) else getattr(e, "rva", None)
-        if rva:
+        # data exports (e.g. msvcr80's _iob, _HUGE) are not code: skip anything outside the code range
+        if rva and info.code_start <= info.image_base + rva < info.code_end:
             addrs.add(info.image_base + rva)
             n_exp += 1
     n_other = 0

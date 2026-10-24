@@ -41,3 +41,13 @@ Ordinal-to-name mappings above are from memory of the Windows SDK exports, not v
 * **Launcher**: do not lift `prototypef.exe` (~8 KB of real code). The host loads the DLL itself (base 0x10000000, relocations, IAT)
   and calls its exports (EngineInitialize, EngineService, EngineTerminate, MainWin32, ...).
 * **Memory**: DLL is not large-address-aware => 2 GB guest space is enough; reserve it low like upstream's guest_memory.
+
+## Decision (2026-10-24): option B, msvcr80.dll obtained
+* The user has no msvcr80.dll, but supplied `vcredist_x86.exe` (VC++ 2005 SP1). It was unpacked (exe -> CAB -> exe -> MSI -> embedded CAB,
+  using libarchive) and `msvcr80.dll` **8.0.50727.762** (626,688 bytes, sha256 starts `02bdde38e4c6bd79`) is now in `crt/msvcr80.dll`.
+* It exports 1,466 names and covers **all 140** msvcr80 functions Prototype imports (checked by name).
+* It imports 160 kernel32 functions + `msvcrt!_getdrives`. Together with Prototype's own imports the kernel32 gap grows from ~30 to ~96 names
+  (by-name compare with NFSU2's host; many are trivial: wide-char file APIs, locale/LCMap/CompareString, console I/O, process/pipe stubs, HeapWalk/Validate).
+  Full lists: `docs/msvcr80_imports.txt`, `docs/prototype_imports.txt`.
+* CI lifts it as a second module with `run_lift.py --prefix msvcr80_` (see workflow step "Lift msvcr80.dll as a second module").
+  Its `_DllMainCRTStartup` must run before Prototype's DLL starts; hot functions get native overrides later (`config/overrides.txt`).

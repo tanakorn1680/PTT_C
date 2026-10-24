@@ -1,6 +1,6 @@
 HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native ด้วยการแปลง DLL เป็น C
 (ไฟล์นี้ไว้ส่งต่อให้ AI ตัวอื่นทำต่อ — อัปเดตทุกครั้งที่ส่งงานใหม่)
-อัปเดตล่าสุด: 2026-10-24 (รอบที่ 6)
+อัปเดตล่าสุด: 2026-10-24 (รอบที่ 7)
 
 == เป้าหมาย ==
 - ทำ APK Android (arm64) ที่รัน Prototype (Radical Entertainment, 2009) แบบ native
@@ -99,20 +99,30 @@ HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native
   จึงต้อง generate ทั้งหมดเหมือนในการวัดรอบหน้า
 - lift_failures 0, unimplemented 39 (เกือบทั้งหมดเป็นข้อมูล), ฟังก์ชัน 140,135, C 7.32M บรรทัด
 
-== งานที่ทำในรอบที่ 6 (ส่งในซิปนี้) ==
-- scripts/full_compile.sh: แก้ตามข้างบน (ต้องรัน fullbuild ใหม่เพื่อได้เลข link จริง)
-- docs/STAGE2_IMPORT_GAP.md + docs/prototype_imports.txt: รายการ import ทั้ง 367 รายการของ DLL เทียบกับ host ของ NFSU2 (ตามชื่อ)
-  สรุป: msvcr80 140 ฟังก์ชันเป็นงานใหม่ใหญ่สุด (NFSU2 ลิงก์ CRT แบบ static), kernel32 ขาด ~30 (fiber, semaphore, VirtualAlloc ฯลฯ),
-  winmm waveOut 8 ตัวคือทางเสียงจริง (dsound มีแค่ ordinal #2), binkw32 17 ตัว stub, เครือข่าย/ole/setupapi stub, d3d9 มีแค่ Direct3DCreate9 (DXVK มีอยู่แล้ว)
-  ข้อเสนอ: lift msvcr80.dll เป็นโมดูลที่สอง (run_lift.py รองรับ --prefix อยู่แล้ว) + override ฟังก์ชันร้อน (memcpy/memset/strlen/_CI* ฯลฯ) ด้วยของ native
-  ต้องมีไฟล์ msvcr80.dll (8.0.50727.x) จากโฟลเดอร์เกม/เครื่อง Windows
+== งานที่ทำในรอบที่ 6 (ส่งไปแล้ว) ==
+- scripts/full_compile.sh แก้ให้วัด ThinLTO link สมจริง (visibility ปกติ, --no-gc-sections); docs/STAGE2_IMPORT_GAP.md + docs/prototype_imports.txt (รายการ import 367 รายการ)
+  ผู้ใช้ **ยังไม่ได้ส่งผล fullbuild รอบใหม่กลับมา** (ผล link ที่ได้ก่อนหน้า 366 วินาที/1.5GB เป็น .so 37KB = ไม่สมจริง)
+
+== ผู้ใช้ไม่มี msvcr80.dll -> ได้ไฟล์จาก vcredist_x86.exe แล้ว (รอบที่ 7) ==
+- ผู้ใช้ส่ง vcredist_x86.exe (VC++ 2005 SP1) มา; แกะ 4 ชั้น (exe -> CAB -> exe -> MSI -> CAB ฝังใน MSI) ด้วย libarchive (ctypes) ได้ msvcr80.dll 8.0.50727.762
+  (626,688 ไบต์, sha256 ขึ้นต้น 02bdde38e4c6bd79) ใส่ไว้ที่ crt/msvcr80.dll; export 1,466 ชื่อ ครอบคลุมครบทั้ง 140 ฟังก์ชันที่ Prototype import (ตรวจตามชื่อ)
+- msvcr80 เองใช้ kernel32 160 ฟังก์ชัน + msvcrt!_getdrives; รวมกับของ Prototype แล้ว kernel32 ที่ host ของ NFSU2 ยังไม่มี ~96 ชื่อ (ส่วนมากง่าย: ไฟล์แบบ wide, locale, console, process stub)
+  รายการเต็มใน docs/msvcr80_imports.txt
+- ตัดสินใจใช้ตัวเลือก B: lift msvcr80.dll เป็นโมดูลที่สอง (run_lift.py --prefix msvcr80_) + override ฟังก์ชันร้อนด้วย native ภายหลัง
+- workflow: ขั้นใหม่ "Lift msvcr80.dll as a second module (CRT)" (รันเมื่อมี crt/msvcr80.dll, continue-on-error): vtable_scan/rtti -> make_seeds -> catalog -> dedupe -> lift
+  -> lift_diagnostics (ตอนนี้รับ prefix เป็นอาร์กิวเมนต์ที่ 4) -> scripts/compile_crt_check.sh (syntax-only ทุกไฟล์ของโมดูล) ผลอยู่ใน Summary หัวข้อ "msvcr80" และ artifact
+  (work/gen_crt/msvcr80_lift_stats.json, crt_lift.log, crt_dedupe_report.txt, crt_compile_check.txt, crt_diag/unimpl_forms.txt)
+- scripts/make_seeds.py: export ที่อยู่นอกช่วงโค้ด (data export ของ msvcr80 เช่น _iob/_HUGE) จะไม่ถูกนับเป็น seed ของฟังก์ชันอีก (ไม่กระทบ DLL เกม)
+- **ยังไม่ได้รันกับ pcrecomp จริง**: ความเสี่ยง: catalog/lift ของ msvcr80 อาจเจอคำสั่งที่ lifter ยังไม่รองรับ (ดู crt_diag/unimpl_forms.txt) หรือ SEH/_except_handler (ไม่ใช่ปัญหา lift แต่เป็นเรื่อง runtime)
 
 == ขั้นต่อไปที่วางไว้ ==
-1) รัน workflow ติ๊ก fullbuild (mode=lto) อีกครั้งเพื่อได้เวลา/RAM ของ ThinLTO จริง (คาดรวม ~15-30 นาที); ถ้า RAM/เวลาไม่ไหวลอง nolto หรือ -O1
-2) ตัดสินใจเรื่อง msvcr80 (ตัวเลือก A: HLE บน bionic, B: lift msvcr80.dll เป็นโมดูลที่สอง + override) ผู้ใช้ต้องบอกว่ามี msvcr80.dll ไหม
+1) ผู้ใช้แตกซิป รัน workflow (ติ๊ก fullbuild mode=lto ด้วย เพื่อได้เลข ThinLTO จริง; dedupe เปิด) แล้วส่ง lift-report กลับ
+   ดู: Summary หัวข้อ msvcr80 (ฟังก์ชัน/unimplemented/compile), fullbuild.txt (compile ผ่านไหม, เวลา/RAM ของ link)
+2) แก้ปัญหาที่เจอใน msvcr80 lift (คำสั่งที่ขาด) เหมือนที่ทำกับ fcomi/lock
 3) เริ่มโครง Android (อิง nfsu2-recompiled/android: guest_memory/guest_runtime/guest_*.inc/d3d9_bridge/main.cpp, ~490KB ซอร์ส):
-   PE loader ของ DLL (base 0x10000000, relocation, IAT), HLE ที่ขาดตามตารางใน docs/STAGE2_IMPORT_GAP.md, waveOut -> AAudio,
-   XInput/ทัช, stub binkw32/ws2_32/setupapi/ole, launcher ฝั่ง host เรียก Engine* exports (ไม่ lift exe), fiber ด้วยเธรดส่งต่อ machine lock
+   โหลด 2 โมดูล (msvcr80 ที่ 0x78130000 ก่อน แล้ว engine DLL ที่ 0x10000000; relocation + IAT; รัน DllMain ของ msvcr80 ก่อน), import ของ Prototype ที่ชี้ msvcr80
+   ผูกกับ export ของโมดูล guest (upstream มี isGuestModule อยู่แล้ว), HLE kernel32 ~96 ตัวที่ขาด, waveOut -> AAudio, XInput/ทัช, stub binkw32/ws2_32/setupapi/ole,
+   launcher ฝั่ง host เรียก Engine* exports (ไม่ lift exe), fiber ด้วยเธรดส่งต่อ machine lock
 4) ตั้ง Gradle/NDK build บน Actions (NDK 28.2.13676358, SDK 35, CMake 3.30.5); host/arm64_guest.h ใช้เป็น -include ได้เลย
 5) (ทางเลือก) bsr / fisttp / fcmov* ถ้าเกมชน
 
