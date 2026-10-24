@@ -1,6 +1,6 @@
 HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native ด้วยการแปลง DLL เป็น C
 (ไฟล์นี้ไว้ส่งต่อให้ AI ตัวอื่นทำต่อ — อัปเดตทุกครั้งที่ส่งงานใหม่)
-อัปเดตล่าสุด: 2026-10-24 (รอบที่ 8)
+อัปเดตล่าสุด: 2026-10-24 (รอบที่ 9)
 
 == เป้าหมาย ==
 - ทำ APK Android (arm64) ที่รัน Prototype (Radical Entertainment, 2009) แบบ native
@@ -131,16 +131,21 @@ HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native
 - scripts/full_compile.sh: เพิ่ม -fPIC
 - ไม่ต้องรัน workflow เพิ่มเพื่อวัดอะไรอีก; รอบถัดไปที่รัน CI คือรอบ build APK จริง (stage 2)
 
+== รอบที่ 9: เริ่ม stage 2 ==
+- ผู้ใช้แตกซิปรอบที่ 8 แล้ว และส่งภาพโฟลเดอร์เกม: Prototype/ (movies 2.76GB, art 1.08GB, Audio 1.91GB, scripts, atg, init.lua, prototypef.exe 2.16MB (09-06-09),
+  prototypeenginef.dll 19.27MB (09-04-22), binkw32.dll 167KB ตัวจริง, skuinfo.p3d, cementfiles.p3d, proto_uv.dat, CL170625.txt) + โฟลเดอร์ Redist (5.61MB) + HOW TO RUN GAME!!.txt
+  (ไฟล์ข้อความ 233 ไบต์ ยังไม่รู้เนื้อหา; exe ลงวันที่ใหม่กว่า DLL อาจเป็น exe ที่ถูกแก้ จึงต้องดูให้ชัดว่า exe ทำอะไร)
+- อ่านโค้ดต้นแบบ nfsu2-recompiled/android (MIT) แล้ว: ดูแผนใน docs/STAGE2_PLAN.md (อะไรเก็บ/แก้/ทิ้ง, ผังหน่วยความจำใหม่เพราะ arena แรกของ heap เริ่มที่ 0x10000000 ชนกับ DLL เกม)
+- เพิ่ม .github/workflows/analyze-launcher.yml (กดรันเองได้ ไม่มีช่องตั้งค่า ใช้เวลาสั้น): อ่าน PE ของ launcher/prototypef.exe (scripts/pe_info.py: section, entropy, overlay, import, สตริงบ่งชี้การป้องกัน)
+  แล้ว lift เฉพาะถ้าโค้ดเล็ก (<1.5MB) เป็น work/gen_launcher (อัปโหลดโค้ด C ของ "ตัวเปิดเกม" ใน artifact launcher-report ซึ่งเป็นข้อยกเว้นของกฎไม่อัปโหลดโค้ดเกม)
+- ผู้ใช้ต้อง: ใส่ prototypef.exe ไว้ที่ launcher/prototypef.exe ใน repo (private), รัน workflow "Analyze launcher exe", ส่ง launcher-report กลับ
+
 == ขั้นต่อไปที่วางไว้ (stage 2: โครง Android) ==
-1) สร้างโครง Android จาก nfsu2-recompiled/android (guest_memory/guest_runtime/guest_*.inc/d3d9_bridge/main.cpp, ~490KB ซอร์ส) ปรับเป็น:
-   - โหลด 2 โมดูล: msvcr80 (base 0x78130000) ก่อน แล้ว engine DLL (0x10000000); relocation + IAT; รัน DllMain ของ msvcr80 ก่อน
-   - import ของ Prototype ที่ชี้ msvcr80 ผูกกับ export ของโมดูล guest (upstream มี isGuestModule อยู่แล้ว)
-   - HLE kernel32 ที่ขาด ~96 ชื่อ (ดู docs/msvcr80_imports.txt + docs/prototype_imports.txt), waveOut -> AAudio, XInput/ทัช,
-     stub binkw32/ws2_32/setupapi/ole/iphlpapi, fiber ด้วยเธรดส่งต่อ machine lock, launcher ฝั่ง host เรียก Engine* exports (ไม่ lift exe)
-2) CMake/Gradle: คอมไพล์ gen/ + gen_crt/ (-fPIC, ThinLTO, แฟล็กเดียวกับ scripts/full_compile.sh) + host/arm64_guest.h เป็น -include; NDK 28.2.13676358, SDK 35, CMake 3.30.5
-3) workflow ใหม่สำหรับ build APK (เซ็นด้วย keystore จาก Secrets, อัปโหลด artifact เฉพาะ APK; repo private)
-4) ผู้ใช้ต้องมีไฟล์เกม (asset) บนมือถือ: โฟลเดอร์เกมทั้งหมดที่มี prototypef.exe/prototypeenginef.dll และข้อมูลเกม; ตั้งค่าที่เก็บไฟล์ในแอป
-5) (ทางเลือก) fcmov*/fisttp ถ้าเกมชน; override ฟังก์ชันร้อนของ CRT (memcpy/memset/strlen/_CI*) ด้วย native ผ่าน config/overrides.txt
+1) อ่าน launcher-report -> เขียนลำดับบูตฝั่ง host (ดู docs/STAGE2_PLAN.md)
+2) สร้างโครง Android จาก nfsu2-recompiled/android ตามแผน (ผังหน่วยความจำใหม่, โหลด 2 โมดูลที่ preferred base, ตัด NFSU2-only, เพิ่ม HLE kernel32 ~96 ตัว, waveOut -> AAudio, fiber, stub binkw32/ws2_32/setupapi/ole)
+3) CMake/Gradle: คอมไพล์ gen/ + gen_crt/ (-fPIC, ThinLTO, แฟล็กเดียวกับ scripts/full_compile.sh) + host/arm64_guest.h เป็น -include; NDK 28.2.13676358, SDK 35, CMake 3.30.5
+4) workflow build APK (เซ็นด้วย keystore จาก Secrets, อัปโหลด artifact เฉพาะ APK; repo private)
+5) (ทางเลือก) fcmov*/fisttp, override ฟังก์ชันร้อนของ CRT, lift binkw32.dll เป็นโมดูลที่สามให้วิดีโอเล่นได้
 
 == ข้อควรระวัง ==
 - ไฟล์เกมและโค้ด C ที่ได้มีลิขสิทธิ์: repo ต้อง private, ห้ามเผยแพร่โค้ดที่แปลงหรือ APK ที่รวมไฟล์เกม

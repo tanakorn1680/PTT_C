@@ -1,0 +1,87 @@
+name: Analyze launcher exe (small, ~5 min)
+
+# ดูว่า prototypef.exe (ตัวเปิดเกม) ทำอะไรก่อนเรียก DLL ของเอ็นจิน เพื่อเขียนส่วนบูตของ APK ให้ตรง
+# ต้องมีไฟล์ launcher/prototypef.exe ใน repo (private)
+# หมายเหตุ: workflow นี้อัปโหลดโค้ด C ที่ lift จาก "ตัวเปิดเกมตัวเล็ก" ด้วย (ไม่ใช่ตัวเอ็นจิน)
+#           เพื่อให้อ่านลำดับการทำงานได้ ถ้า .text ใหญ่เกิน ~1.5MB จะไม่ lift
+
+on:
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PCRECOMP: ${{ github.workspace }}/pcrecomp
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Checkout NFSU2 recompiled (patches + lift driver)
+        uses: actions/checkout@v4
+        with:
+          repository: codepdbh/nfsu2-recompiled
+          ref: c27896e3dad62593ffc0a0500ebb39dca42ad2e0
+          path: upstream
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: pip install capstone pefile unicorn keystone-engine
+
+      - name: Get pcrecomp 35548b8, apply patches and the PTT extension
+        run: |
+          git clone https://github.com/sp00nznet/pcrecomp.git pcrecomp
+          cd pcrecomp
+          git checkout 35548b8
+          git config user.email ci@example.com
+          git config user.name ci
+          git am ../upstream/patches/pcrecomp/*.patch
+          cd ..
+          python patches/ptt_lifter_ext.py pcrecomp
+
+      - name: PE info of the launcher
+        run: |
+          mkdir -p work
+          test -f launcher/prototypef.exe || { echo "launcher/prototypef.exe is missing from the repo"; exit 1; }
+          python scripts/pe_info.py launcher/prototypef.exe | tee work/launcher_info.txt
+
+      - name: Lift the launcher (only if its code is small)
+        run: |
+          mkdir -p lift/scripts lift/config
+          cp upstream/scripts/run_lift.py lift/scripts/
+          : > lift/config/overrides.txt; : > lift/config/exclude.txt; : > lift/config/hooks.txt
+          EXE=launcher/prototypef.exe
+          SIZE=$(python - <<'PY'
+          import os, sys
+          sys.path.insert(0, os.path.join(os.environ["PCRECOMP"], "tools", "pe"))
+          from pe_analyze import analyze_pe
+          i = analyze_pe("launcher/prototypef.exe")
+          print(i.code_end - i.code_start)
+          PY
+          )
+          echo "code range size: $SIZE bytes" | tee -a work/launcher_info.txt
+          if [ "$SIZE" -gt 1500000 ]; then echo "code too large to lift for analysis" | tee -a work/launcher_info.txt; exit 0; fi
+          python scripts/make_seeds.py "$EXE" work/launcher_seeds.json work/none.json   # entry point + exports only (make_seeds needs >= 1 seed file argument; a missing file is skipped)
+          python lift/scripts/run_lift.py catalog "$EXE" work/launcher_seeds.json work/launcher_catalog.json > work/launcher_catalog.log 2>&1 \
+            || { tail -n 40 work/launcher_catalog.log; exit 1; }
+          python lift/scripts/run_lift.py lift "$EXE" work/launcher_catalog.json work/gen_launcher --prefix launcher_ > work/launcher_lift.log 2>&1 \
+            || { tail -n 40 work/launcher_lift.log; exit 1; }
+          tail -n 8 work/launcher_lift.log
+          du -sh work/gen_launcher
+
+      - name: Upload launcher report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-report
+          path: |
+            work/launcher_info.txt
+            work/launcher_catalog.log
+            work/launcher_lift.log
+            work/gen_launcher/*.c
+            work/gen_launcher/*.h
+          if-no-files-found: warn
