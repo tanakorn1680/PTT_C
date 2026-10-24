@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drop catalog "functions" that are really entry points in the MIDDLE of another function.
 
-  dedupe_catalog.py <catalog.json> <out_catalog.json> <report.txt>
+  dedupe_catalog.py <catalog.json> <out_catalog.json> <report.txt> [<module.dll> | <keep.json>]
 
 Why: in Prototype's engine DLL, sub_109D0150 (a real ~19 KB function with a prologue) was also catalogued
 at ~177 mid-function addresses (probably switch jump-table targets taken for vtable entries). Each copy is
@@ -13,7 +13,9 @@ A function F is DROPPED only when ALL hold:
      (the code is lifted there anyway);
   2. no function has F.address in calls_to (nobody calls it directly);
   3. no function H that does NOT itself cover F.address jumps to it (no tail jump from outside);
-  4. F.entry_kind is not an export/entry kind, and F is not a thunk.
+  4. F.entry_kind is not an export/entry kind, F is not a thunk, and F is not a DLL export / entry point
+     (4th argument: the module DLL, whose exports are read with pcrecomp's analyze_pe; or a JSON list of addresses)
+     -- an export dropped here would be a missing symbol at run time (msvcr80 has 1,466 of them).
 Everything dropped is listed (counts + hosts) in the report; the catalog schema is unchanged.
 Not dropped: anything reachable only through a function pointer is still a risk if it points mid-function;
 the report's "dropped by entry_kind" tells how much of that there could be.
@@ -41,7 +43,26 @@ def sweep(blocks, queries, cb):
         cb(key, active)
 
 
-def main(src, dst, report):
+def load_keep(arg):
+    """Addresses that must never be dropped: DLL exports + entry point (or a JSON list for tests)."""
+    if arg is None:
+        return set()
+    if arg.lower().endswith(".json"):
+        return set(json.load(open(arg)))
+    import os
+    sys.path.insert(0, os.path.join(os.environ.get("PCRECOMP", "../pcrecomp"), "tools", "pe"))
+    from pe_analyze import analyze_pe
+    info = analyze_pe(arg)
+    keep = {info.image_base + info.entry_point_rva}
+    for e in info.exports or []:
+        rva = e.get("rva") if isinstance(e, dict) else getattr(e, "rva", None)
+        if rva:
+            keep.add(info.image_base + rva)
+    return keep
+
+
+def main(src, dst, report, keep_arg=None):
+    keep = load_keep(keep_arg)
     doc = json.load(open(src))
     funcs = doc["functions"]
     n = len(funcs)
@@ -87,10 +108,12 @@ def main(src, dst, report):
         return any(w in k for w in ("export", "entry", "main", "dllmain"))
 
     drop = set()
-    kept_called = kept_jump = kept_kind = 0
+    kept_called = kept_jump = kept_kind = kept_export = 0
     for i in inside:
         f = funcs[i]
-        if f["address"] in called:
+        if f["address"] in keep:
+            kept_export += 1
+        elif f["address"] in called:
             kept_called += 1
         elif i in outside_jump:
             kept_jump += 1
@@ -110,7 +133,7 @@ def main(src, dst, report):
     with open(report, "w") as w:
         w.write(f"functions: {n} -> {len(doc['functions'])}  (dropped {len(drop)})\n")
         w.write(f"inside another function: {len(inside)}; kept because directly called: {kept_called}, "
-                f"tail-jumped from outside: {kept_jump}, export/thunk kind: {kept_kind}\n")
+                f"tail-jumped from outside: {kept_jump}, export/thunk kind: {kept_kind}, DLL export/entry: {kept_export}\n")
         w.write("\nentry_kind (all / dropped):\n")
         for k, c in kinds_all.most_common():
             w.write(f"  {k:<24} {c:>8} / {kinds_drop.get(k, 0)}\n")
@@ -122,6 +145,6 @@ def main(src, dst, report):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
+    if len(sys.argv) not in (4, 5):
         sys.exit(__doc__)
     main(*sys.argv[1:])

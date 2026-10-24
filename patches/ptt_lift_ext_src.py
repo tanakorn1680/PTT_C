@@ -2,7 +2,7 @@
 
 # ======================================================================================
 # PTT_C extension (appended to lift32.py by patches/ptt_lifter_ext.py) -- DO NOT EDIT HERE
-# fcomi / fucomi / fcompi / fucompi, and `lock xadd` / `lock cmpxchg` / `lock cmpxchg8b`.
+# fcomi / fucomi / fcompi / fucompi, `lock xadd` / `lock cmpxchg` / `lock cmpxchg8b`, and 32-bit `bsr`.
 # Guest threads run under one machine lock, so the locked forms need no host atomics.
 # ======================================================================================
 def _ptt_eflags_stmt(kind, x, y):
@@ -49,6 +49,17 @@ def _ptt_ext_emit(lifter, m, ops, comment):
                     f"uint32_t _a = eax; uint32_t _r = _a - _d; "
                     + _ptt_eflags_stmt('sub', '_a', '_d')
                     + " if (_a == _d) { MEM32(_ea) = _s; } else { eax = _d; }")
+        lifter._flag_state = ('eflags', '_flag_a, _flag_b')
+        lifter._flag_seq += 1
+        return [f"{{ {body} }} {comment}"]
+
+    if (m == 'bsr' and len(ops) == 2 and ops[0].type == X86_OP_REG
+            and op_bits(ops[0]) == 32 and op_bits(ops[1]) == 32):
+        # dest = index of the highest set bit; source 0 => ZF = 1 and dest unchanged (what real CPUs do).
+        # The other flags are architecturally undefined; they are cleared here.
+        body = (f"uint32_t _s = {lifter._fmt_read(ops[1])}; "
+                f"if (_s) {{ {lifter._fmt_write(ops[0], '(uint32_t)(31 - __builtin_clz(_s))')}; }} "
+                "_flag_a = _s ? 0u : 0x40u; _flag_b = 0; _flag_k = FK_EFLAGS; _cf = 0;")
         lifter._flag_state = ('eflags', '_flag_a, _flag_b')
         lifter._flag_seq += 1
         return [f"{{ {body} }} {comment}"]

@@ -4,7 +4,7 @@
   ptt_lifter_ext.py <pcrecomp_dir>
 
 * tools/lift/lift32.py : adds one `elif` before the fnstsw branch and appends patches/ptt_lift_ext_src.py
-                         (fcomi/fucomi/fcompi/fucompi, lock xadd/cmpxchg/cmpxchg8b). Fails loudly if an
+                         (fcomi family, lock xadd/cmpxchg/cmpxchg8b, bsr, `repz ret`). Fails loudly if an
                          anchor is missing or the file is already patched.
 * tools/lift/difftest.py: best effort: adds difftest Cases for the new instructions (warns if no anchor).
 """
@@ -13,9 +13,17 @@ import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 MARK = "PTT_C extension"
 ANCHOR = "        elif m == 'fnstsw' or m == 'fstsw':\n"
+LOCK_ANCHOR = (
+    "        if m.startswith('lock'):\n"
+    "            m = m[4:].strip() or (insn.op_str.split() or [''])[0]\n"
+)
+REPZ_RET = (
+    "        if m in ('repz ret', 'rep ret', 'repe ret'):   # PTT_C extension: `rep ret` is just `ret`\n"
+    "            m = 'ret'\n"
+)
 BRANCH = (
     "        # PTT_C extension: see the end of this file.\n"
-    "        elif (m in ('fcomi', 'fucomi', 'fcompi', 'fucompi', 'xadd', 'cmpxchg', 'cmpxchg8b')\n"
+    "        elif (m in ('fcomi', 'fucomi', 'fcompi', 'fucompi', 'xadd', 'cmpxchg', 'cmpxchg8b', 'bsr')\n"
     "              and (_ptt_r := _ptt_ext_emit(self, m, ops, comment)) is not None):\n"
     "            lines.extend(_ptt_r)\n\n"
 )
@@ -36,6 +44,8 @@ CASES = [
     ("lock.cmpxchg8b-eq", "f00fc70e0f94c0",
      "{'eax': 0x55667788, 'edx': 0x11223344, 'ebx': 0xAAAA, 'ecx': 0xBBBB, 'esi': SCRATCH}",
      "(0x1122334455667788).to_bytes(8, 'little')"),
+    ("bsr.mem",          "0fbd060f94c1", "{'eax': 0x99, 'ecx': 0, 'esi': SCRATCH}", "(0x00012345).to_bytes(4, 'little')"),
+    ("bsr.zero",         "0fbd060f94c1", "{'eax': 0x99, 'ecx': 0, 'esi': SCRATCH}", "(0).to_bytes(4, 'little')"),
     ("lock.cmpxchg8b-ne", "f00fc70e0f94c0",
      "{'eax': 1, 'edx': 2, 'ebx': 0xAAAA, 'ecx': 0xBBBB, 'esi': SCRATCH}",
      "(0x1122334455667788).to_bytes(8, 'little')"),
@@ -50,6 +60,9 @@ def patch_lift32(root):
     if s.count(ANCHOR) != 1:
         sys.exit(f"{p}: anchor for the fnstsw branch found {s.count(ANCHOR)} times (expected 1); "
                  "pcrecomp changed, the extension needs updating")
+    if s.count(LOCK_ANCHOR) != 1:
+        sys.exit(f"{p}: lock-prefix anchor found {s.count(LOCK_ANCHOR)} times (expected 1)")
+    s = s.replace(LOCK_ANCHOR, LOCK_ANCHOR + REPZ_RET, 1)
     s = s.replace(ANCHOR, BRANCH + ANCHOR, 1)
     s += open(os.path.join(HERE, "ptt_lift_ext_src.py"), encoding="utf-8").read()
     open(p, "w", encoding="utf-8", newline="\n").write(s)

@@ -15,7 +15,7 @@ CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-cl
 [ -x /usr/bin/time ] || sudo apt-get install -y time >/dev/null 2>&1
 CORES=$(nproc)
 say "mode=$MODE, $CORES cores, $(free -m | awk '/Mem:/{print $2}') MB RAM, $(df -m "$WD" | awk 'NR==2{print $4}') MB free disk"
-FLAGS="-O2 -w -fwrapv -fno-strict-aliasing -fexceptions -ffp-contract=off -g0 \
+FLAGS="-O2 -w -fwrapv -fPIC -fno-strict-aliasing -fexceptions -ffp-contract=off -g0 \
 -DRECOMP_STRICT_ICALL -DRECOMP_LOCAL_REGS -DRECOMP_X87_WINDOW -DRECOMP_MEM_QUAL= \
 -I $PC/runtime/recomp32 -I $GEN -include $HDR"
 [ "$MODE" = lto ] && FLAGS="$FLAGS -flto=thin"
