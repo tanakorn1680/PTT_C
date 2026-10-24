@@ -136,9 +136,9 @@ HANDOFF — พอร์ตเกม Prototype (PC 2009) เป็น APK native
   prototypeenginef.dll 19.27MB (09-04-22), binkw32.dll 167KB ตัวจริง, skuinfo.p3d, cementfiles.p3d, proto_uv.dat, CL170625.txt) + โฟลเดอร์ Redist (5.61MB) + HOW TO RUN GAME!!.txt
   (ไฟล์ข้อความ 233 ไบต์ ยังไม่รู้เนื้อหา; exe ลงวันที่ใหม่กว่า DLL อาจเป็น exe ที่ถูกแก้ จึงต้องดูให้ชัดว่า exe ทำอะไร)
 - อ่านโค้ดต้นแบบ nfsu2-recompiled/android (MIT) แล้ว: ดูแผนใน docs/STAGE2_PLAN.md (อะไรเก็บ/แก้/ทิ้ง, ผังหน่วยความจำใหม่เพราะ arena แรกของ heap เริ่มที่ 0x10000000 ชนกับ DLL เกม)
-- เพิ่ม .github/workflows/analyze-launcher.yml (กดรันเองได้ ไม่มีช่องตั้งค่า ใช้เวลาสั้น): อ่าน PE ของ launcher/prototypef.exe (scripts/pe_info.py: section, entropy, overlay, import, สตริงบ่งชี้การป้องกัน)
+- เพิ่ม .github/workflows/analyze-launcher.yml (กดรันเองได้ ไม่มีช่องตั้งค่า ใช้เวลาสั้น): อ่าน PE ของ .exe ใน launcher/ (scripts/pe_info.py: section, entropy, overlay, import, สตริงบ่งชี้การป้องกัน)
   แล้ว lift เฉพาะถ้าโค้ดเล็ก (<1.5MB) เป็น work/gen_launcher (อัปโหลดโค้ด C ของ "ตัวเปิดเกม" ใน artifact launcher-report ซึ่งเป็นข้อยกเว้นของกฎไม่อัปโหลดโค้ดเกม)
-- ผู้ใช้ต้อง: ใส่ prototypef.exe ไว้ที่ launcher/prototypef.exe ใน repo (private), รัน workflow "Analyze launcher exe", ส่ง launcher-report กลับ
+- ผู้ใช้ต้อง: ใส่ exe ตัวเปิดเกม (ชื่ออะไรก็ได้ ผู้ใช้สั่งไม่ต้องจำกัดชื่อ) ไว้ในโฟลเดอร์ launcher/ ใน repo (private) — workflow เลือก .exe ที่ใหญ่สุด, รัน workflow "Analyze launcher exe", ส่ง launcher-report กลับ
 
 == ขั้นต่อไปที่วางไว้ (stage 2: โครง Android) ==
 1) อ่าน launcher-report -> เขียนลำดับบูตฝั่ง host (ดู docs/STAGE2_PLAN.md)

@@ -1,7 +1,7 @@
 name: Analyze launcher exe (small, ~5 min)
 
-# ดูว่า prototypef.exe (ตัวเปิดเกม) ทำอะไรก่อนเรียก DLL ของเอ็นจิน เพื่อเขียนส่วนบูตของ APK ให้ตรง
-# ต้องมีไฟล์ launcher/prototypef.exe ใน repo (private)
+# ดูว่าตัวเปิดเกม (.exe) ทำอะไรก่อนเรียก DLL ของเอ็นจิน เพื่อเขียนส่วนบูตของ APK ให้ตรง
+# ใส่ไฟล์ .exe ตัวเปิดเกมไว้ในโฟลเดอร์ launcher/ (ชื่ออะไรก็ได้; ถ้ามีหลายไฟล์ เลือกไฟล์ที่ใหญ่สุด) ใน repo (private)
 # หมายเหตุ: workflow นี้อัปโหลดโค้ด C ที่ lift จาก "ตัวเปิดเกมตัวเล็ก" ด้วย (ไม่ใช่ตัวเอ็นจิน)
 #           เพื่อให้อ่านลำดับการทำงานได้ ถ้า .text ใหญ่เกิน ~1.5MB จะไม่ lift
 
@@ -43,23 +43,27 @@ jobs:
           cd ..
           python patches/ptt_lifter_ext.py pcrecomp
 
-      - name: PE info of the launcher
+      - name: Find the launcher exe (any name, largest .exe in launcher/)
         run: |
           mkdir -p work
-          test -f launcher/prototypef.exe || { echo "launcher/prototypef.exe is missing from the repo"; exit 1; }
-          python scripts/pe_info.py launcher/prototypef.exe | tee work/launcher_info.txt
+          EXEPATH=$(find launcher -maxdepth 1 -type f -iname '*.exe' -printf '%s %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)
+          test -n "$EXEPATH" || { echo "no .exe found in launcher/ (put the launcher exe there, any name)"; exit 1; }
+          echo "using $EXEPATH"
+          echo "EXE=$GITHUB_WORKSPACE/$EXEPATH" >> "$GITHUB_ENV"
+
+      - name: PE info of the launcher
+        run: python scripts/pe_info.py "$EXE" | tee work/launcher_info.txt
 
       - name: Lift the launcher (only if its code is small)
         run: |
           mkdir -p lift/scripts lift/config
           cp upstream/scripts/run_lift.py lift/scripts/
           : > lift/config/overrides.txt; : > lift/config/exclude.txt; : > lift/config/hooks.txt
-          EXE=launcher/prototypef.exe
           SIZE=$(python - <<'PY'
           import os, sys
           sys.path.insert(0, os.path.join(os.environ["PCRECOMP"], "tools", "pe"))
           from pe_analyze import analyze_pe
-          i = analyze_pe("launcher/prototypef.exe")
+          i = analyze_pe(os.environ["EXE"])
           print(i.code_end - i.code_start)
           PY
           )
