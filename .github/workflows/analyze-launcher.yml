@@ -1,7 +1,7 @@
 name: Analyze launcher exe (small, ~5 min)
 
 # ดูว่าตัวเปิดเกม (.exe) ทำอะไรก่อนเรียก DLL ของเอ็นจิน เพื่อเขียนส่วนบูตของ APK ให้ตรง
-# ใส่ไฟล์ .exe ตัวเปิดเกมไว้ในโฟลเดอร์ launcher/ (ชื่ออะไรก็ได้; ถ้ามีหลายไฟล์ เลือกไฟล์ที่ใหญ่สุด) ใน repo (private)
+# อัปโหลดไฟล์ .exe ตัวเปิดเกมเข้า repo (โฟลเดอร์ไหนก็ได้ ชื่ออะไรก็ได้; ถ้ามีหลายไฟล์ เลือกไฟล์ที่ใหญ่สุด) repo ต้อง private
 # หมายเหตุ: workflow นี้อัปโหลดโค้ด C ที่ lift จาก "ตัวเปิดเกมตัวเล็ก" ด้วย (ไม่ใช่ตัวเอ็นจิน)
 #           เพื่อให้อ่านลำดับการทำงานได้ ถ้า .text ใหญ่เกิน ~1.5MB จะไม่ lift
 
@@ -43,13 +43,16 @@ jobs:
           cd ..
           python patches/ptt_lifter_ext.py pcrecomp
 
-      - name: Find the launcher exe (any name, largest .exe in launcher/)
+      - name: Find the launcher exe (any name, any folder, largest .exe in the repo)
         run: |
           mkdir -p work
-          EXEPATH=$(find launcher -maxdepth 1 -type f -iname '*.exe' -printf '%s %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2-)
-          test -n "$EXEPATH" || { echo "no .exe found in launcher/ (put the launcher exe there, any name)"; exit 1; }
+          echo "repo top level:"; ls -la
+          echo ".exe files in the repo:"
+          find . -type f -iname '*.exe' -not -path './pcrecomp/*' -not -path './upstream/*' -not -path './.git/*' -printf '%s %p\n' | sort -nr | tee work/exe_list.txt
+          EXEPATH=$(head -n1 work/exe_list.txt | cut -d' ' -f2-)
+          test -n "$EXEPATH" || { echo "no .exe anywhere in the repo: upload the launcher exe to the repo (any folder, any name)"; exit 1; }
           echo "using $EXEPATH"
-          echo "EXE=$GITHUB_WORKSPACE/$EXEPATH" >> "$GITHUB_ENV"
+          echo "EXE=$GITHUB_WORKSPACE/${EXEPATH#./}" >> "$GITHUB_ENV"
 
       - name: PE info of the launcher
         run: python scripts/pe_info.py "$EXE" | tee work/launcher_info.txt
